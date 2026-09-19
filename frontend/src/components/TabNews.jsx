@@ -4,8 +4,10 @@ import {
   CheckCircle2, RotateCcw, Radio, TrendingUp, TrendingDown,
   Minus, ExternalLink, Building2, ChevronDown, ChevronUp, Rss,
   Flame, Activity, BarChart2, Clock, Search, X, Bell, BellOff,
-  Bookmark, Copy, Check, Sparkles, Sliders, Layers, ArrowUpRight
+  Bookmark, Copy, Check, Sparkles, Sliders, Layers, ArrowUpRight,
+  Globe, FileText
 } from 'lucide-react';
+
 import { SAMPLE_NEWS_ARTICLES } from '../mockData/samples';
 import { useAppAuth } from '../auth/AuthContext';
 
@@ -355,9 +357,89 @@ const NewsCard = ({ item, onDismiss, onRouteItem }) => {
           </button>
         </div>
       )}
+
+      {/* ── Cited Sources & Verified Links ─────────────────────────────── */}
+      <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1 mr-1">
+            <Globe className="h-3 w-3 text-cyan-400" />
+            <span>Sources:</span>
+          </span>
+
+          {/* Explicit cited_sources */}
+          {item.cited_sources && item.cited_sources.map((cite, i) => (
+            <a
+              key={i}
+              href={cite.uri}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
+            >
+              {cite.type && (
+                <span className="text-[9px] font-bold text-cyan-400 uppercase mr-0.5">[{cite.type}]</span>
+              )}
+              <span className="truncate max-w-[200px]">{cite.title}</span>
+              <ArrowUpRight className="h-2.5 w-2.5 shrink-0 text-cyan-400" />
+            </a>
+          ))}
+
+          {/* Contextual links if no cited_sources */}
+          {(!item.cited_sources || item.cited_sources.length === 0) && (
+            <>
+              {item.ticker && (
+                <>
+                  <a
+                    href={`https://www.sec.gov/edgar/searchedgar/companysearch?q=${item.ticker}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
+                  >
+                    <span className="text-cyan-400 font-bold">[SEC]</span>
+                    <span>Form 8-K ({item.ticker})</span>
+                    <ArrowUpRight className="h-2.5 w-2.5 shrink-0 text-cyan-400" />
+                  </a>
+                  <a
+                    href={`https://www.bloomberg.com/quote/${item.ticker}:US`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
+                  >
+                    <span className="text-amber-400 font-bold">[News]</span>
+                    <span>Bloomberg Wire</span>
+                    <ArrowUpRight className="h-2.5 w-2.5 shrink-0 text-cyan-400" />
+                  </a>
+                </>
+              )}
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent(item.headline)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <span>Financial Wire Search</span>
+                <ArrowUpRight className="h-2.5 w-2.5 shrink-0" />
+              </a>
+            </>
+          )}
+        </div>
+
+        {/* Primary Article / Filing CTA */}
+        {(item.href || item.url) && (
+          <a
+            href={item.href || item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center space-x-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 hover:underline shrink-0 ml-auto"
+          >
+            <span>Read Original Report</span>
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
     </div>
   );
 };
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Master TabNews Component

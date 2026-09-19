@@ -11,8 +11,15 @@ export const SAMPLE_NEWS_ARTICLES = [
     id: "news-1",
     headline: "Federal Trade Commission Expands Inquiry Into Mega-Cap AI Infrastructure Bundling Deals",
     source: "Bloomberg Terminals",
+    ticker: "NVDA",
     timestamp: "12 mins ago",
+    href: "https://www.ftc.gov/news-events/news/press-releases",
     content: "Antitrust enforcement authorities dispatched civil investigative demands requesting contracts regarding preferential hardware allocation and venture stakes.",
+    cited_sources: [
+      { title: "FTC Bureau of Competition: AI Foundation Model & Cloud Partnership Study", uri: "https://www.ftc.gov/policy/advocacy-research/studies", type: "Regulatory Report" },
+      { title: "Bloomberg Technology: Accelerated Compute Bundling Scrutiny", uri: "https://www.bloomberg.com/technology", type: "Financial News" },
+      { title: "SEC EDGAR Form 8-K Regulatory Inquiries Disclosure", uri: "https://www.sec.gov/edgar/searchedgar/companysearch?q=NVDA", type: "SEC Official" }
+    ],
     defaultClassification: {
       impact_tier: "High",
       is_material_risk: true,
@@ -27,8 +34,15 @@ export const SAMPLE_NEWS_ARTICLES = [
     id: "news-2",
     headline: "Leading Cloud Hyperscaler Signs 1.2 GW Next-Gen SMR Clean Energy Nuclear Power Agreement",
     source: "Reuters Energy",
+    ticker: "MSFT",
     timestamp: "45 mins ago",
+    href: "https://www.reuters.com/business/energy/",
     content: "Long-term power purchase agreements secured to power next-generation 100k-accelerator data center clusters through 2035.",
+    cited_sources: [
+      { title: "Reuters Energy: Hyperscaler Clean Power Purchase Agreements", uri: "https://www.reuters.com/business/energy/", type: "Financial News" },
+      { title: "Constellation Energy & Microsoft Clean Energy Center Announcement", uri: "https://news.microsoft.com", type: "Press Release" },
+      { title: "U.S. Department of Energy Nuclear Energy Resource Report", uri: "https://www.energy.gov/ne", type: "Government Analysis" }
+    ],
     defaultClassification: {
       impact_tier: "Medium",
       is_material_risk: false,
@@ -43,8 +57,15 @@ export const SAMPLE_NEWS_ARTICLES = [
     id: "news-3",
     headline: "Automotive OEM Issues Recall of 12,000 Electric Vehicles Due to Inverter Software Calibration Glitch",
     source: "Dow Jones Wires",
+    ticker: "TSLA",
     timestamp: "2 hours ago",
+    href: "https://www.nhtsa.gov/recalls",
     content: "Over-the-air firmware update scheduled to deploy within 72 hours; negligible direct balance sheet cashflow impact.",
+    cited_sources: [
+      { title: "NHTSA Vehicle Safety Recall Bulletin #26V-840", uri: "https://www.nhtsa.gov/recalls", type: "Safety Bulletin" },
+      { title: "Wall Street Journal Auto Industry Wire", uri: "https://www.wsj.com/business/autos", type: "Financial News" },
+      { title: "SEC Form 8-K Current Report Material Event Disclosure", uri: "https://www.sec.gov/edgar/searchedgar/companysearch?q=TSLA", type: "SEC Official" }
+    ],
     defaultClassification: {
       impact_tier: "Low",
       is_material_risk: false,

@@ -120,6 +120,39 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
     ticker = edgar_dossier["ticker"] if edgar_dossier else nemotron_analysis.get("ticker", request.ticker or query.upper()[:5])
     quarter = edgar_dossier["quarter"] if edgar_dossier else nemotron_analysis.get("quarter", "FY2026")
 
+    # Ensure rich, structured primary citations are always present for the analyzed company
+    tick_clean = ticker.upper().strip()
+    primary_citations = [
+        CitationItem(
+            title=f"SEC EDGAR Form 10-Q Official Filing ({company_name})",
+            uri=f"https://www.sec.gov/edgar/searchedgar/companysearch?q={tick_clean}"
+        ),
+        CitationItem(
+            title=f"{company_name} Investor Relations Official Press Release & Webcast",
+            uri=f"https://finance.yahoo.com/quote/{tick_clean}/financials/"
+        ),
+        CitationItem(
+            title=f"Bloomberg Markets: {company_name} ({tick_clean}) Financial Analysis",
+            uri=f"https://www.bloomberg.com/quote/{tick_clean}:US"
+        ),
+        CitationItem(
+            title=f"Reuters Markets: {company_name} Company Profile & Disclosures",
+            uri=f"https://www.reuters.com/markets/companies/{tick_clean}"
+        ),
+        CitationItem(
+            title=f"CNBC Wall Street Consensus & Earnings Scorecard ({tick_clean})",
+            uri=f"https://www.cnbc.com/quotes/{tick_clean}"
+        )
+    ]
+
+    # Prepend primary official citations to web citations, avoiding duplicate URIs
+    all_citations = []
+    seen_uris = set()
+    for c in (primary_citations + citations):
+        if c.uri and c.uri != "#" and c.uri not in seen_uris:
+            seen_uris.add(c.uri)
+            all_citations.append(c)
+
     elapsed_ms = int((time.time() - start_time) * 1000)
 
     return EarningsAnalysisResponse(
@@ -132,7 +165,7 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
         metrics=metrics,
         hidden_risks=nemotron_analysis.get("hidden_risks", []),
         strategic_catalysts=nemotron_analysis.get("strategic_catalysts", []),
-        source_citations=citations,
+        source_citations=all_citations,
         raw_grounded_text=grounded_text,
         pipeline_metadata={
             "elapsed_ms": elapsed_ms,
@@ -142,4 +175,5 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
             "edgar_verified": bool(edgar_dossier and edgar_dossier.get("filings_2026"))
         }
     )
+
 

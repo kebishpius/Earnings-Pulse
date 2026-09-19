@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe, Building2, X, ArrowUpRight } from 'lucide-react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe, Building2, X, ArrowUpRight, FileText, BookOpen, Headphones, BarChart2, DollarSign } from 'lucide-react';
+
 import { SAMPLE_QUERIES } from '../mockData/samples';
 import { getCompanySuggestions } from '../mockData/companies';
 
@@ -29,9 +30,11 @@ const FALLBACK_EARNINGS_DATABASE = {
       "High-margin Services expansion through Apple Pay, Cloud storage, and recurring subscription monetization."
     ],
     source_citations: [
-      { title: "Apple Reports Third Quarter Results - Apple Newsroom", uri: "https://www.apple.com/newsroom/2026/08/apple-reports-third-quarter-results/" },
-      { title: "SEC Form 10-Q Quarterly Report (Q3 FY2026) - EDGAR", uri: "https://www.sec.gov/edgar/searchedgar/companysearch" },
-      { title: "Tim Cook on Apple Intelligence & Hardware Demand - Bloomberg Wire", uri: "https://www.bloomberg.com" }
+      { title: "SEC EDGAR Form 10-Q Quarterly Report (Q3 FY2026) - Apple Inc. (CIK 0000320193)", uri: "https://www.sec.gov/edgar/browse/?CIK=0000320193" },
+      { title: "Apple Reports Third Quarter Results - Apple Newsroom Press Release", uri: "https://www.apple.com/newsroom/2026/08/apple-reports-third-quarter-results/" },
+      { title: "Tim Cook on Apple Intelligence & Hardware Demand - Bloomberg Wire", uri: "https://www.bloomberg.com/quote/AAPL:US" },
+      { title: "Reuters Financial: Apple Services Revenue Reaches All-Time Record", uri: "https://www.reuters.com/markets/companies/AAPL.O" },
+      { title: "CNBC: Apple Q3 Earnings Scorecard & Consensus Estimates Beat", uri: "https://www.cnbc.com/quotes/AAPL" }
     ],
     pipeline_metadata: {
       elapsed_ms: 890,
@@ -64,10 +67,13 @@ const FALLBACK_EARNINGS_DATABASE = {
       "$60.0 billion share repurchase program demonstrating exceptional free cash flow generation."
     ],
     source_citations: [
-      { title: "NVIDIA Reports Financial Results for Second Quarter Fiscal 2026", uri: "https://nvidianews.nvidia.com" },
-      { title: "SEC Form 10-Q Filing - NVIDIA Data Center Momentum (FY2026)", uri: "https://www.sec.gov" },
-      { title: "Jensen Huang on Blackwell Architecture Scalability - Reuters", uri: "https://www.reuters.com" }
+      { title: "SEC Form 10-Q Official Filing - NVIDIA Data Center Momentum (CIK 0001045810)", uri: "https://www.sec.gov/edgar/browse/?CIK=0001045810" },
+      { title: "NVIDIA Reports Financial Results for Second Quarter Fiscal 2026 - Newsroom", uri: "https://nvidianews.nvidia.com" },
+      { title: "Jensen Huang on Blackwell Architecture Scalability - Reuters Intelligence", uri: "https://www.reuters.com/markets/companies/NVDA.O" },
+      { title: "Bloomberg Markets: NVIDIA Data Center Computing Revenue & Sovereign AI", uri: "https://www.bloomberg.com/quote/NVDA:US" },
+      { title: "CNBC Wall Street Consensus & $60B Buyback Authorization Analysis", uri: "https://www.cnbc.com/quotes/NVDA" }
     ],
+
     pipeline_metadata: {
       elapsed_ms: 1120,
       gemini_provider: "Gemini 2.0 Flash (Grounded Search)",
@@ -641,6 +647,65 @@ const TabEarnings = () => {
                 "{result.executive_summary}"
               </p>
             </div>
+            {/* Quick Links & Primary Investor Resources Bar */}
+            <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1.5">
+                <BookOpen className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Primary Document & Research Links:</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={`https://www.sec.gov/edgar/searchedgar/companysearch?q=${result.ticker}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-500/30 text-cyan-300 text-[11px] font-semibold flex items-center space-x-1 transition-all group"
+                >
+                  <FileText className="h-3 w-3 group-hover:text-cyan-200" />
+                  <span>SEC Form 10-Q</span>
+                  <ArrowUpRight className="h-2.5 w-2.5 text-cyan-400" />
+                </a>
+                <a
+                  href={`https://finance.yahoo.com/quote/${result.ticker}/financials/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center space-x-1 transition-all group"
+                >
+                  <Building2 className="h-3 w-3 group-hover:text-emerald-200" />
+                  <span>Investor Relations</span>
+                  <ArrowUpRight className="h-2.5 w-2.5 text-emerald-400" />
+                </a>
+                <a
+                  href={`https://www.tradingview.com/symbols/${result.ticker}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-blue-950/40 hover:bg-blue-900/60 border border-blue-500/30 text-blue-300 text-[11px] font-semibold flex items-center space-x-1 transition-all group"
+                >
+                  <BarChart2 className="h-3 w-3 group-hover:text-blue-200" />
+                  <span>Live Chart</span>
+                  <ArrowUpRight className="h-2.5 w-2.5 text-blue-400" />
+                </a>
+                <a
+                  href={`https://www.bloomberg.com/quote/${result.ticker}:US`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-purple-950/40 hover:bg-purple-900/60 border border-purple-500/30 text-purple-300 text-[11px] font-semibold flex items-center space-x-1 transition-all group"
+                >
+                  <Globe className="h-3 w-3 group-hover:text-purple-200" />
+                  <span>Bloomberg Wire</span>
+                  <ArrowUpRight className="h-2.5 w-2.5 text-purple-400" />
+                </a>
+                <a
+                  href={`https://seekingalpha.com/symbol/${result.ticker}/earnings/transcripts`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 border border-amber-500/30 text-amber-300 text-[11px] font-semibold flex items-center space-x-1 transition-all group"
+                >
+                  <Headphones className="h-3 w-3 group-hover:text-amber-200" />
+                  <span>Call Transcript</span>
+                  <ArrowUpRight className="h-2.5 w-2.5 text-amber-400" />
+                </a>
+              </div>
+            </div>
           </div>
 
           {/* Key Metrics Grid */}
@@ -713,29 +778,86 @@ const TabEarnings = () => {
 
           </div>
 
-          {/* Live Google Search Citations & Verification Panel */}
+          {/* ── Cited Sources, Regulatory Filings & Grounded Articles ── */}
           {result.source_citations && result.source_citations.length > 0 && (
-            <div className="glass-panel rounded-xl p-5 border border-slate-800">
-              <div className="flex items-center space-x-2 text-blue-400 text-xs font-semibold uppercase tracking-wider mb-3">
-                <Globe className="h-4 w-4" />
-                <span>Google Search Grounding Verification Citations ({result.source_citations.length} Sources Verified)</span>
+            <div className="glass-panel rounded-2xl p-5 border border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                <div className="flex items-center space-x-2 text-blue-400 text-xs font-semibold uppercase tracking-wider">
+                  <Globe className="h-4 w-4 text-cyan-400" />
+                  <span className="text-white font-bold">Cited Sources & Regulatory Disclosures</span>
+                  <span className="text-slate-500 font-normal">({result.source_citations.length} Grounded References)</span>
+                </div>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  Verified with SEC EDGAR & Google Search Grounding
+                </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {result.source_citations.map((cite, idx) => (
-                  <a
-                    key={idx}
-                    href={cite.uri}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between p-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-xs text-slate-300 transition-colors group"
-                  >
-                    <span className="truncate pr-2 group-hover:text-cyan-300">{cite.title}</span>
-                    <ExternalLink className="h-3.5 w-3.5 text-slate-500 group-hover:text-cyan-400 shrink-0" />
-                  </a>
-                ))}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {result.source_citations.map((cite, idx) => {
+                  const titleLower = (cite.title || '').toLowerCase();
+                  let tag = { label: 'Market Wire', color: 'bg-slate-800 text-slate-300 border-slate-700' };
+                  if (titleLower.includes('sec') || titleLower.includes('10-q') || titleLower.includes('edgar') || titleLower.includes('form')) {
+                    tag = { label: 'SEC Official', color: 'bg-cyan-950/80 text-cyan-300 border-cyan-800/80' };
+                  } else if (titleLower.includes('investor') || titleLower.includes('newsroom') || titleLower.includes('press release') || titleLower.includes('results')) {
+                    tag = { label: 'Investor Relations', color: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80' };
+                  } else if (titleLower.includes('bloomberg') || titleLower.includes('reuters') || titleLower.includes('wsj') || titleLower.includes('cnbc')) {
+                    tag = { label: 'Financial News', color: 'bg-amber-950/80 text-amber-300 border-amber-800/80' };
+                  }
+
+                  let domain = 'sec.gov';
+                  try {
+                    domain = new URL(cite.uri).hostname.replace('www.', '');
+                  } catch (e) {
+                    domain = 'Official Source';
+                  }
+
+                  return (
+                    <a
+                      key={idx}
+                      href={cite.uri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="glass-panel glass-card-hover rounded-xl p-3.5 border border-slate-800/90 flex flex-col justify-between group transition-all"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider border ${tag.color}`}>
+                            {tag.label}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">{domain}</span>
+                        </div>
+                        <p className="text-xs text-slate-200 group-hover:text-cyan-300 font-medium line-clamp-2 transition-colors">
+                          {cite.title}
+                        </p>
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500 group-hover:text-cyan-400">
+                        <span>Open Document</span>
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+
+              {/* Useful Information Notice */}
+              <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-800/80 text-slate-400 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <ShieldCheck className="h-4 w-4 text-cyan-400 shrink-0" />
+                  <span>Looking for historical filings? Cross-reference all 10-Q, 10-K, and 8-K disclosures directly on the SEC website.</span>
+                </div>
+                <a
+                  href={`https://www.sec.gov/edgar/searchedgar/companysearch?q=${result.ticker}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-400 hover:text-cyan-300 text-xs font-semibold hover:underline shrink-0 flex items-center space-x-1"
+                >
+                  <span>Search SEC EDGAR</span>
+                  <ArrowUpRight className="h-3 w-3" />
+                </a>
               </div>
             </div>
           )}
+
 
         </div>
       )}

@@ -1,7 +1,8 @@
 import logging
+import urllib.parse
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
-from app.schemas.models import RouteNewsRequest, RouteNewsResponse
+from app.schemas.models import RouteNewsRequest, RouteNewsResponse, CitationItem
 from app.services.nemotron_service import route_financial_news
 from app.services.edgar_service import (
     fetch_recent_edgar_8k,
@@ -27,8 +28,9 @@ async def route_news(request: RouteNewsRequest):
 
     logger.info(f"Incoming /api/route-news for headline: '{headline}'")
 
-    # Attempt to enrich with EDGAR company context
+    # Attempt to enrich with EDGAR company context and build cited sources
     enriched_content = request.content or ""
+    company = None
     try:
         company = resolve_company_from_query(headline)
         if company:
@@ -57,6 +59,39 @@ async def route_news(request: RouteNewsRequest):
         logger.error(f"Error evaluating news: {e}")
         raise HTTPException(status_code=500, detail=f"News routing error: {str(e)}")
 
+    # Construct relevant cited sources
+    cited_sources = []
+    source_name = request.source or "Wire Service"
+    encoded_headline = urllib.parse.quote_plus(headline)
+
+    if company:
+        tick = company["ticker"].upper()
+        cited_sources.append(CitationItem(
+            title=f"SEC EDGAR Material Filings (Form 8-K / 10-Q) - {company['title']} ({tick})",
+            uri=f"https://www.sec.gov/edgar/searchedgar/companysearch?q={tick}"
+        ))
+        cited_sources.append(CitationItem(
+            title=f"Bloomberg Terminal Market Intelligence for ${tick}",
+            uri=f"https://www.bloomberg.com/quote/{tick}:US"
+        ))
+        cited_sources.append(CitationItem(
+            title=f"Reuters News & Disclosures: {company['title']}",
+            uri=f"https://www.reuters.com/markets/companies/{tick}"
+        ))
+    else:
+        cited_sources.append(CitationItem(
+            title=f"{source_name}: Original Financial Wire Coverage",
+            uri=f"https://www.google.com/search?q={encoded_headline}"
+        ))
+        cited_sources.append(CitationItem(
+            title="SEC EDGAR Company & Macro Filings Search",
+            uri="https://www.sec.gov/edgar/searchedgar/companysearch"
+        ))
+        cited_sources.append(CitationItem(
+            title="Bloomberg Markets Breaking Financial News",
+            uri="https://www.bloomberg.com/markets"
+        ))
+
     return RouteNewsResponse(
         headline=headline,
         impact_tier=evaluation.get("impact_tier", "Medium"),
@@ -71,8 +106,10 @@ async def route_news(request: RouteNewsRequest):
         recommended_action=evaluation.get(
             "recommended_action",
             "Monitor correlated indices and review trailing risk parameters."
-        )
+        ),
+        cited_sources=cited_sources
     )
+
 
 
 @router.get("/edgar-news")

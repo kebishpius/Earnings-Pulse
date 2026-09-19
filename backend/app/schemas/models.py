@@ -48,6 +48,8 @@ class RouteNewsResponse(BaseModel):
     urgency_score: int  # 1 - 10
     market_impact_analysis: str
     recommended_action: str
+    cited_sources: List[CitationItem] = []
+
 
 # --- Portfolio Audit Models ---
 
