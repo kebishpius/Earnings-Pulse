@@ -1,83 +1,63 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ShieldAlert, AlertOctagon, Zap, Filter, PlusCircle, RefreshCw, Send,
-  CheckCircle2, RotateCcw, Radio, TrendingUp, TrendingDown,
-  Minus, ExternalLink, Building2, ChevronDown, ChevronUp, Rss,
-  Flame, Activity, BarChart2, Clock, Search, X, Bell, BellOff,
-  Bookmark, Copy, Check, Sparkles, Sliders, Layers, ArrowUpRight,
-  Globe, FileText
+  AlertOctagon, Zap, PlusCircle, RefreshCw, Send, CheckCircle2, RotateCcw,
+  Radio, TrendingUp, TrendingDown, Minus, ExternalLink, ChevronDown, ChevronUp,
+  Flame, Activity, Clock, Search, X, Bookmark, Copy, Check, ArrowUpRight,
+  Globe, FileText, Landmark, Inbox, Star, ArrowUpDown, Layers
 } from 'lucide-react';
 
 import { SAMPLE_NEWS_ARTICLES } from '../mockData/samples';
 import { useAppAuth } from '../auth/AuthContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Configuration & Visual Styling Helpers
+// Visual vocabulary — one place that decides how each impact tier / sentiment
+// is rendered, so a signal always looks the same wherever it appears.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const getTierConfig = (tier = 'Medium') => {
-  switch ((tier || '').toLowerCase()) {
-    case 'high':
-      return {
-        badge: 'bg-rose-500/20 text-rose-400 border-rose-500/50 shadow-rose-500/20',
-        dot: 'bg-rose-500 animate-ping',
-        card: 'border-rose-500/40 bg-gradient-to-br from-rose-950/20 to-slate-900/90',
-        glow: 'shadow-rose-500/10',
-        bar: 'bg-rose-500',
-        label: 'High Impact',
-        icon: <Flame className="h-3 w-3" />,
-      };
-    case 'medium':
-      return {
-        badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-amber-500/10',
-        dot: 'bg-amber-400',
-        card: 'border-amber-500/30 bg-gradient-to-br from-amber-950/15 to-slate-900/90',
-        glow: 'shadow-amber-500/5',
-        bar: 'bg-amber-400',
-        label: 'Medium Impact',
-        icon: <Activity className="h-3 w-3" />,
-      };
-    default:
-      return {
-        badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-        dot: 'bg-cyan-400',
-        card: 'border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-900/50',
-        glow: '',
-        bar: 'bg-cyan-400',
-        label: 'Low Impact',
-        icon: <Minus className="h-3 w-3" />,
-      };
-  }
+const TIERS = {
+  high: {
+    label: 'High impact',
+    Icon: Flame,
+    rail: 'bg-rose-500',
+    border: 'border-rose-500/40',
+    badge: 'bg-rose-500/15 text-rose-300 border-rose-500/40',
+    bar: 'bg-rose-500',
+    text: 'text-rose-400',
+  },
+  medium: {
+    label: 'Medium impact',
+    Icon: Activity,
+    rail: 'bg-amber-400',
+    border: 'border-amber-500/30',
+    badge: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
+    bar: 'bg-amber-400',
+    text: 'text-amber-400',
+  },
+  low: {
+    label: 'Low impact',
+    Icon: Minus,
+    rail: 'bg-slate-600',
+    border: 'border-slate-800',
+    badge: 'bg-slate-800 text-slate-300 border-slate-700',
+    bar: 'bg-cyan-400',
+    text: 'text-cyan-400',
+  },
 };
 
-const getSentimentDetails = (sentiment) => {
-  const s = (sentiment || '').toLowerCase();
-  if (s === 'bullish') {
-    return {
-      icon: <TrendingUp className="h-3 w-3 text-emerald-400" />,
-      color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-      label: 'Bullish Catalyst'
-    };
-  }
-  if (s === 'bearish') {
-    return {
-      icon: <TrendingDown className="h-3 w-3 text-rose-400" />,
-      color: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
-      label: 'Bearish Headwind'
-    };
-  }
-  return {
-    icon: <Minus className="h-3 w-3 text-slate-400" />,
-    color: 'text-slate-400 bg-slate-800 border-slate-700',
-    label: 'Neutral / In-Line'
-  };
+const getTier = (tier) => TIERS[(tier || '').toLowerCase()] || TIERS.low;
+
+const SENTIMENTS = {
+  bullish: { label: 'Bullish', Icon: TrendingUp, chip: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' },
+  bearish: { label: 'Bearish', Icon: TrendingDown, chip: 'text-rose-300 bg-rose-500/10 border-rose-500/30' },
+  neutral: { label: 'Neutral', Icon: Minus, chip: 'text-slate-300 bg-slate-800 border-slate-700' },
 };
+
+const getSentiment = (sentiment) => SENTIMENTS[(sentiment || '').toLowerCase()] || SENTIMENTS.neutral;
 
 const PRESET_SIGNALS = [
   {
-    tag: 'DOJ ANTITRUST',
-    title: '🚨 DOJ Subpoenas Cloud Provider (High Risk)',
-    badgeColor: 'text-rose-400 border-rose-500/30 bg-rose-500/10',
+    tag: 'Regulatory',
+    badgeColor: 'text-rose-300 border-rose-500/30 bg-rose-500/10',
     payload: {
       headline: 'DOJ Antitrust Subpoenas Cloud Provider Over Accelerated Hardware Bundling and Quotas',
       source: 'Financial Times',
@@ -86,9 +66,8 @@ const PRESET_SIGNALS = [
     }
   },
   {
-    tag: 'CLEAN NUCLEAR',
-    title: '⚡ Hyperscaler $3.2B Nuclear Power Pact (Bullish)',
-    badgeColor: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
+    tag: 'Energy',
+    badgeColor: 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10',
     payload: {
       headline: 'Mega-Cap Hyperscaler Inks $3.2B Clean Nuclear Energy Agreement for Next-Gen Data Hubs',
       source: 'Bloomberg Energy',
@@ -97,9 +76,8 @@ const PRESET_SIGNALS = [
     }
   },
   {
-    tag: 'SAAS MARGINS',
-    title: '📉 Enterprise SaaS 38% Margin Squeeze (Bearish)',
-    badgeColor: 'text-amber-400 border-amber-500/30 bg-amber-500/10',
+    tag: 'Earnings',
+    badgeColor: 'text-amber-300 border-amber-500/30 bg-amber-500/10',
     payload: {
       headline: 'Enterprise SaaS Provider Reports 38% Gross Margin Squeeze Due to Escalating Cloud Inference Costs',
       source: 'Bloomberg Wire',
@@ -108,9 +86,8 @@ const PRESET_SIGNALS = [
     }
   },
   {
-    tag: 'MACRO FOMC',
-    title: '🏦 Federal Reserve 50bps Rate Cut Signal',
-    badgeColor: 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10',
+    tag: 'Macro',
+    badgeColor: 'text-cyan-300 border-cyan-500/30 bg-cyan-500/10',
     payload: {
       headline: 'Federal Reserve Signals Potential 50bps Interest Rate Cut Following Labor Market Cooling',
       source: 'Wall Street Journal',
@@ -121,325 +98,308 @@ const PRESET_SIGNALS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NewsCard Component
+// Small shared pieces
 // ─────────────────────────────────────────────────────────────────────────────
 
-const NewsCard = ({ item, onDismiss, onRouteItem }) => {
-  const { toggleBookmarkSignal, isSignalBookmarked } = useAppAuth();
-  const [copied, setCopied] = useState(false);
-  const [routing, setRouting] = useState(false);
+const UrgencyMeter = ({ score = 0, tier }) => (
+  <div className="flex items-center space-x-2 shrink-0" title={`Urgency ${score} out of 10`}>
+    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Urgency</span>
+    <div className="w-20 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+      <div className={`h-full transition-all duration-700 ${tier.bar}`} style={{ width: `${score * 10}%` }} />
+    </div>
+    <span className={`text-xs font-mono font-bold ${tier.text}`}>{score}<span className="text-slate-600">/10</span></span>
+  </div>
+);
 
-  const c = item.defaultClassification;
-  const isClassified = Boolean(c && c.urgency_score !== undefined);
-  const tierCfg = getTierConfig(c?.impact_tier);
-  const sentiment = getSentimentDetails(c?.sentiment);
-  const isBookmarked = isSignalBookmarked(item.id);
-  const isEdgar = item.source?.includes('EDGAR') || item.filing_type === '8-K';
-
-  const handleCopyAction = () => {
-    const text = c?.recommended_action || item.headline;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  const handleTriggerRoute = async () => {
-    if (!onRouteItem) return;
-    setRouting(true);
-    await onRouteItem(item);
-    setRouting(false);
-  };
-
+const SourceLinks = ({ item }) => {
+  const cites = item.cited_sources || [];
   return (
-    <div
-      className={`glass-panel rounded-2xl p-5 border transition-all duration-300 shadow-xl ${
-        isClassified ? tierCfg.card : 'border-slate-800 bg-slate-950/60'
-      } ${tierCfg.glow}`}
-    >
-      {/* Top Meta Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-2 border-b border-slate-800/80">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Classification Badge or Pending */}
-          {isClassified ? (
-            <span className={`inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-sm ${tierCfg.badge}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${tierCfg.dot}`} />
-              {tierCfg.icon}
-              <span>{tierCfg.label}</span>
-            </span>
-          ) : (
-            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">
-              <Zap className="h-3 w-3 animate-pulse text-amber-400" />
-              <span>Pending Nemotron Triage</span>
-            </span>
-          )}
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1 mr-0.5">
+        <Globe className="h-3 w-3 text-cyan-400" />
+        <span>Sources</span>
+      </span>
 
-          {/* Material Risk Warning Flag */}
-          {c?.is_material_risk && (
-            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider bg-rose-500 text-slate-950 shadow-sm shadow-rose-500/30">
-              <AlertOctagon className="h-2.5 w-2.5" />
-              <span>Material Risk</span>
-            </span>
-          )}
+      {cites.map((cite, i) => (
+        <a
+          key={i}
+          href={cite.uri}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
+        >
+          {cite.type && <span className="text-[9px] font-bold text-cyan-400 uppercase">[{cite.type}]</span>}
+          <span className="truncate max-w-[220px]">{cite.title}</span>
+          <ArrowUpRight className="h-2.5 w-2.5 shrink-0 text-cyan-400" />
+        </a>
+      ))}
 
-          {/* Ticker Tag */}
+      {cites.length === 0 && (
+        <>
           {item.ticker && (
-            <span className="text-[10px] font-bold font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-md">
-              ${item.ticker}
-            </span>
-          )}
-
-          {/* Sentiment Indicator */}
-          {isClassified && (
-            <span className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${sentiment.color}`}>
-              {sentiment.icon}
-              <span>{c.sentiment || 'Neutral'}</span>
-            </span>
-          )}
-
-          {/* Category */}
-          {c?.category && (
-            <span className="hidden sm:inline-block text-[10px] text-slate-400 font-medium px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800">
-              {c.category}
-            </span>
-          )}
-        </div>
-
-        {/* Right Source & Actions */}
-        <div className="flex items-center space-x-2 text-[11px] text-slate-400 shrink-0">
-          <span className="font-semibold text-slate-300">{item.source || 'SEC EDGAR'}</span>
-          <span className="text-slate-600">•</span>
-          <span className="flex items-center space-x-1 text-slate-400 text-[10px]">
-            <Clock className="h-3 w-3" />
-            <span>{item.timestamp || item.filing_date || 'Recent'}</span>
-          </span>
-
-          {/* Bookmark Button */}
-          <button
-            type="button"
-            onClick={() => toggleBookmarkSignal(item)}
-            title={isBookmarked ? "Remove from Auth0 Bookmarks" : "Save to Auth0 Desk"}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-              isBookmarked
-                ? 'text-amber-400 bg-amber-500/15 border-amber-500/40 shadow-sm shadow-amber-500/20'
-                : 'text-slate-500 hover:text-amber-400 hover:bg-slate-800 border-slate-800'
-            }`}
-          >
-            <Bookmark className={`h-3.5 w-3.5 ${isBookmarked ? 'fill-amber-400' : ''}`} />
-          </button>
-
-          {/* Dismiss Button */}
-          <button
-            type="button"
-            onClick={() => onDismiss(item.id)}
-            title="Dismiss from stream"
-            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Main Headline */}
-      <h3 className="text-base font-bold text-white tracking-tight leading-snug">
-        {item.headline}
-        {item.href && (
-          <a
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="View Official Filing on SEC EDGAR"
-            className="inline-flex items-center space-x-0.5 ml-2 text-cyan-400 hover:text-cyan-300 text-xs font-semibold hover:underline"
-          >
-            <span>Filing</span>
-            <ArrowUpRight className="h-3 w-3" />
-          </a>
-        )}
-      </h3>
-
-      {/* Excerpt / Content Body */}
-      {item.content && (
-        <div className="mt-2 text-xs text-slate-300 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
-          <p className="line-clamp-3">{item.content.replace(/<[^>]*>?/gm, ' ')}</p>
-        </div>
-      )}
-
-      {/* Classified Intelligence Analysis Grid */}
-      {isClassified ? (
-        <div className="mt-4 pt-3 border-t border-slate-800/80">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-            
-            {/* 1. Urgency Index */}
-            <div className="md:col-span-3 bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Urgency Index</span>
-              <div className="flex items-baseline space-x-1.5 my-1.5">
-                <span className={`text-2xl font-mono font-black ${
-                  c.urgency_score >= 7 ? 'text-rose-400' : c.urgency_score >= 5 ? 'text-amber-400' : 'text-cyan-400'
-                }`}>
-                  {c.urgency_score}
-                </span>
-                <span className="text-slate-500 text-xs">/ 10</span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-700 ${tierCfg.bar}`}
-                  style={{ width: `${(c.urgency_score || 0) * 10}%` }}
-                />
-              </div>
-            </div>
-
-            {/* 2. Market Impact Analysis */}
-            <div className="md:col-span-5 bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center space-x-1 mb-1">
-                <Activity className="h-3 w-3 text-cyan-400" />
-                <span>Market Impact Analysis</span>
-              </span>
-              <p className="text-xs text-slate-200 leading-relaxed">
-                {c.market_impact_analysis}
-              </p>
-            </div>
-
-            {/* 3. Actionable Tactical Guidance */}
-            <div className="md:col-span-4 bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider flex items-center space-x-1">
-                  <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                  <span>Execution Action</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopyAction}
-                  title="Copy guidance to clipboard"
-                  className="text-slate-400 hover:text-white p-0.5 rounded cursor-pointer transition-colors flex items-center space-x-1 text-[10px]"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="h-3 w-3 text-emerald-400" />
-                      <span className="text-emerald-400 font-semibold">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
-              <p className="text-xs text-emerald-300 font-medium leading-relaxed">
-                {c.recommended_action}
-              </p>
-            </div>
-
-          </div>
-        </div>
-      ) : (
-        /* Unclassified Action Row */
-        <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-          <span className="text-xs text-slate-400">
-            Official regulatory disclosure ready for instant volatility classification.
-          </span>
-          <button
-            type="button"
-            onClick={handleTriggerRoute}
-            disabled={routing}
-            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50"
-          >
-            {routing ? (
-              <>
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                <span>NVIDIA Nemotron Triaging...</span>
-              </>
-            ) : (
-              <>
-                <Zap className="h-3.5 w-3.5" />
-                <span>Analyze with Nemotron</span>
-              </>
-            )}
-          </button>
-        </div>
-      )}
-
-      {/* ── Cited Sources & Verified Links ─────────────────────────────── */}
-      <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1 mr-1">
-            <Globe className="h-3 w-3 text-cyan-400" />
-            <span>Sources:</span>
-          </span>
-
-          {/* Explicit cited_sources */}
-          {item.cited_sources && item.cited_sources.map((cite, i) => (
             <a
-              key={i}
-              href={cite.uri}
+              href={`https://www.sec.gov/edgar/searchedgar/companysearch?q=${item.ticker}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
+              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
             >
-              {cite.type && (
-                <span className="text-[9px] font-bold text-cyan-400 uppercase mr-0.5">[{cite.type}]</span>
-              )}
-              <span className="truncate max-w-[200px]">{cite.title}</span>
+              <span className="text-cyan-400 font-bold">[SEC]</span>
+              <span>Filings for {item.ticker}</span>
               <ArrowUpRight className="h-2.5 w-2.5 shrink-0 text-cyan-400" />
             </a>
-          ))}
-
-          {/* Contextual links if no cited_sources */}
-          {(!item.cited_sources || item.cited_sources.length === 0) && (
-            <>
-              {item.ticker && (
-                <>
-                  <a
-                    href={`https://www.sec.gov/edgar/searchedgar/companysearch?q=${item.ticker}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
-                  >
-                    <span className="text-cyan-400 font-bold">[SEC]</span>
-                    <span>Form 8-K ({item.ticker})</span>
-                    <ArrowUpRight className="h-2.5 w-2.5 shrink-0 text-cyan-400" />
-                  </a>
-                  <a
-                    href={`https://www.bloomberg.com/quote/${item.ticker}:US`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-300 hover:text-cyan-300 transition-colors"
-                  >
-                    <span className="text-amber-400 font-bold">[News]</span>
-                    <span>Bloomberg Wire</span>
-                    <ArrowUpRight className="h-2.5 w-2.5 shrink-0 text-cyan-400" />
-                  </a>
-                </>
-              )}
-              <a
-                href={`https://www.google.com/search?q=${encodeURIComponent(item.headline)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                <span>Financial Wire Search</span>
-                <ArrowUpRight className="h-2.5 w-2.5 shrink-0" />
-              </a>
-            </>
           )}
-        </div>
-
-        {/* Primary Article / Filing CTA */}
-        {(item.href || item.url) && (
           <a
-            href={item.href || item.url}
+            href={`https://www.google.com/search?q=${encodeURIComponent(item.headline)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center space-x-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 hover:underline shrink-0 ml-auto"
+            className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
           >
-            <span>Read Original Report</span>
-            <ExternalLink className="h-3 w-3" />
+            <span>Search this story</span>
+            <ArrowUpRight className="h-2.5 w-2.5 shrink-0" />
           </a>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SignalCard — an analyzed signal. Reads top-to-bottom: what happened,
+// how urgent it is, what it means, what to do. Raw text and sources are
+// tucked behind a toggle so the stream stays scannable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SignalCard = ({ item, onDismiss }) => {
+  const { toggleBookmarkSignal, isSignalBookmarked } = useAppAuth();
+  const [copied, setCopied] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const c = item.defaultClassification || {};
+  const tier = getTier(c.impact_tier);
+  const sentiment = getSentiment(c.sentiment);
+  const isBookmarked = isSignalBookmarked(item.id);
+  const TierIcon = tier.Icon;
+  const SentimentIcon = sentiment.Icon;
+
+  const handleCopyAction = () => {
+    navigator.clipboard.writeText(c.recommended_action || item.headline);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <article className={`glass-panel relative overflow-hidden rounded-2xl border shadow-lg ${tier.border} bg-slate-950/60`}>
+      <span className={`absolute left-0 top-0 h-full w-1 ${tier.rail}`} />
+
+      <div className="p-5 pl-6">
+        {/* Row 1 — classification at a glance, housekeeping on the right */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${tier.badge}`}>
+              <TierIcon className="h-3 w-3" />
+              <span>{tier.label}</span>
+            </span>
+
+            {c.is_material_risk && (
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-500 text-slate-950">
+                <AlertOctagon className="h-2.5 w-2.5" />
+                <span>Material risk</span>
+              </span>
+            )}
+
+            <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${sentiment.chip}`}>
+              <SentimentIcon className="h-3 w-3" />
+              <span>{sentiment.label}</span>
+            </span>
+
+            {item.ticker && (
+              <span className="text-[10px] font-bold font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-md">
+                ${item.ticker}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => toggleBookmarkSignal(item)}
+              title={isBookmarked ? 'Remove from saved signals' : 'Save this signal'}
+              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                isBookmarked
+                  ? 'text-amber-400 bg-amber-500/15 border-amber-500/40'
+                  : 'text-slate-500 hover:text-amber-400 hover:bg-slate-800 border-slate-800'
+              }`}
+            >
+              <Bookmark className={`h-3.5 w-3.5 ${isBookmarked ? 'fill-amber-400' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDismiss(item.id)}
+              title="Dismiss this signal"
+              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2 — the headline itself */}
+        <h3 className="mt-2.5 text-base font-bold text-white tracking-tight leading-snug">
+          {item.headline}
+        </h3>
+
+        {/* Row 3 — provenance + urgency on one quiet line */}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+          <span className="flex items-center space-x-1.5">
+            <span className="font-semibold text-slate-300">{item.source || 'SEC EDGAR'}</span>
+            <span className="text-slate-600">•</span>
+            <Clock className="h-3 w-3" />
+            <span>{item.timestamp || item.filing_date || 'Recent'}</span>
+            {c.category && (
+              <>
+                <span className="text-slate-600">•</span>
+                <span>{c.category}</span>
+              </>
+            )}
+          </span>
+          <UrgencyMeter score={c.urgency_score || 0} tier={tier} />
+        </div>
+
+        {/* Row 4 — the two answers a reader actually wants */}
+        <div className="mt-3.5 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800">
+            <span className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider flex items-center space-x-1 mb-1.5">
+              <Activity className="h-3 w-3" />
+              <span>What it means</span>
+            </span>
+            <p className="text-xs text-slate-200 leading-relaxed">{c.market_impact_analysis}</p>
+          </div>
+
+          <div className="bg-emerald-950/20 p-3 rounded-xl border border-emerald-500/25">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider flex items-center space-x-1">
+                <CheckCircle2 className="h-3 w-3" />
+                <span>Suggested action</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyAction}
+                title="Copy this action"
+                className="text-slate-400 hover:text-white rounded cursor-pointer transition-colors flex items-center space-x-1 text-[10px]"
+              >
+                {copied ? (
+                  <><Check className="h-3 w-3 text-emerald-400" /><span className="text-emerald-400 font-semibold">Copied</span></>
+                ) : (
+                  <><Copy className="h-3 w-3" /><span>Copy</span></>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-emerald-200 font-medium leading-relaxed">{c.recommended_action}</p>
+          </div>
+        </div>
+
+        {/* Row 5 — everything secondary, collapsed by default */}
+        <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setShowDetails(v => !v)}
+            className="text-[11px] font-semibold text-slate-400 hover:text-cyan-300 flex items-center space-x-1 cursor-pointer transition-colors"
+          >
+            {showDetails ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            <span>{showDetails ? 'Hide excerpt & sources' : 'Excerpt & sources'}</span>
+          </button>
+
+          {(item.href || item.url) && (
+            <a
+              href={item.href || item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center space-x-1 text-[11px] font-bold text-cyan-400 hover:text-cyan-300 hover:underline shrink-0"
+            >
+              <span>Read original</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+
+        {showDetails && (
+          <div className="mt-2.5 space-y-2.5 animate-fadeIn">
+            {item.content && (
+              <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+                {item.content.replace(/<[^>]*>?/gm, ' ')}
+              </p>
+            )}
+            <SourceLinks item={item} />
+          </div>
+        )}
+      </div>
+    </article>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FilingRow — an unanalyzed 8-K. Deliberately one line tall: there is no
+// analysis to show yet, so it should not take the space of a full card.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FilingRow = ({ item, onAnalyze, onDismiss }) => {
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    await onAnalyze(item);
+    setAnalyzing(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-slate-800 bg-slate-950/50 hover:border-slate-700 transition-colors">
+      <div className="h-7 w-7 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0">
+        <Landmark className="h-3.5 w-3.5 text-slate-400" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold text-slate-200 truncate">{item.headline}</p>
+        <p className="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+          {item.ticker && <span className="font-mono font-bold text-cyan-400">${item.ticker}</span>}
+          <span>{item.filing_type || '8-K'}</span>
+          <span className="text-slate-700">•</span>
+          <span>{item.timestamp || item.filing_date || 'Recent'}</span>
+        </p>
+      </div>
+
+      {item.href && (
+        <a
+          href={item.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open filing on SEC EDGAR"
+          className="p-1.5 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-slate-800 transition-colors shrink-0"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
+
+      <button
+        type="button"
+        onClick={handleAnalyze}
+        disabled={analyzing}
+        className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-[11px] font-bold flex items-center space-x-1 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+      >
+        {analyzing ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+        <span>{analyzing ? 'Analyzing' : 'Analyze'}</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onDismiss(item.id)}
+        title="Dismiss this filing"
+        className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-slate-800 transition-colors shrink-0"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Master TabNews Component
@@ -455,12 +415,15 @@ const TabNews = () => {
   const [edgarLoading, setEdgarLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
 
-  // Filter States
-  const [selectedFilter, setSelectedFilter] = useState('ALL'); // 'ALL' | 'HIGH' | 'MATERIAL' | 'EDGAR' | 'BULLISH' | 'BEARISH' | 'SAVED'
+  // View state
+  const [selectedFilter, setSelectedFilter] = useState('ALL'); // ALL | HIGH | MATERIAL | EDGAR | SAVED
+  const [sentimentFilter, setSentimentFilter] = useState(null); // null | 'bullish' | 'bearish'
+  const [sortMode, setSortMode] = useState('impact'); // 'impact' | 'newest'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTicker, setSelectedTicker] = useState(null);
+  const [showAllFilings, setShowAllFilings] = useState(false);
 
-  // Ingest Console Drawer
+  // Ingest console
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const [inputHeadline, setInputHeadline] = useState('');
   const [inputSource, setInputSource] = useState('');
@@ -468,7 +431,7 @@ const TabNews = () => {
   const [inputContent, setInputContent] = useState('');
   const [isRouting, setIsRouting] = useState(false);
 
-  // ── Fetch Live SEC EDGAR 8-K filings
+  // ── Fetch live SEC EDGAR 8-K filings
   const fetchEdgarFilings = useCallback(async () => {
     setEdgarLoading(true);
     try {
@@ -477,7 +440,7 @@ const TabNews = () => {
       const data = await res.json();
       const items = (data.items || []).map(item => ({
         ...item,
-        defaultClassification: null // Will be routed on demand
+        defaultClassification: null // Analyzed on demand
       }));
       setEdgarItems(items);
       setLastUpdated(new Date());
@@ -492,7 +455,7 @@ const TabNews = () => {
     fetchEdgarFilings();
   }, [fetchEdgarFilings]);
 
-  // ── Route a Signal using NVIDIA Nemotron
+  // ── Analyze a signal using NVIDIA Nemotron
   const handleRouteNews = async (customPayload = null) => {
     const headline = (customPayload?.headline ?? inputHeadline).trim();
     const source = (customPayload?.source ?? inputSource).trim() || 'Wire Service';
@@ -506,11 +469,7 @@ const TabNews = () => {
       const res = await fetch('/api/route-news', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          headline,
-          source,
-          content
-        }),
+        body: JSON.stringify({ headline, source, content }),
       });
 
       if (!res.ok) throw new Error(`Server status ${res.status}`);
@@ -529,7 +488,6 @@ const TabNews = () => {
 
       setFeed(prev => [newItem, ...prev]);
 
-      // If user submitted via form, clear and close console
       if (!customPayload) {
         setInputHeadline('');
         setInputSource('');
@@ -573,23 +531,21 @@ const TabNews = () => {
     }
   };
 
-  // ── Route unclassified item from card button
-  const handleRouteCardItem = async (cardItem) => {
+  // ── Analyze an unclassified filing from its row
+  const handleAnalyzeFiling = async (filing) => {
     const classification = await handleRouteNews({
-      headline: cardItem.headline,
-      source: cardItem.source || 'SEC EDGAR 8-K',
-      ticker: cardItem.ticker || '',
-      content: cardItem.content || '',
-      href: cardItem.href || null
+      headline: filing.headline,
+      source: filing.source || 'SEC EDGAR 8-K',
+      ticker: filing.ticker || '',
+      content: filing.content || '',
+      href: filing.href || null
     });
 
     if (classification) {
-      // Remove from unclassified EDGAR items so it doesn't duplicate
-      setEdgarItems(prev => prev.filter(e => e.id !== cardItem.id));
+      setEdgarItems(prev => prev.filter(e => e.id !== filing.id));
     }
   };
 
-  // ── Dismiss handlers
   const handleDismiss = (id) => {
     setFeed(prev => prev.filter(item => item.id !== id));
     setEdgarItems(prev => prev.filter(item => item.id !== id));
@@ -597,132 +553,140 @@ const TabNews = () => {
 
   const handleResetFilters = () => {
     setSelectedFilter('ALL');
+    setSentimentFilter(null);
     setSearchQuery('');
     setSelectedTicker(null);
   };
 
-  // ── Combined & Filtered Stream
-  const combinedSignals = useMemo(() => {
-    let list = [];
+  const filtersActive = selectedFilter !== 'ALL' || sentimentFilter || searchQuery.trim() || selectedTicker;
 
-    if (selectedFilter === 'EDGAR') {
-      list = [...edgarItems];
-    } else if (selectedFilter === 'SAVED') {
-      list = userPreferences?.savedSignals || [];
-    } else {
-      // Interleave classified signals with unclassified EDGAR filings
-      list = [...feed, ...edgarItems];
-    }
-
-    return list.filter(item => {
+  // ── Shared filter predicate (ticker + keyword), applied to both streams
+  const matchesQuery = useCallback((item) => {
+    if (selectedTicker && item.ticker?.toUpperCase() !== selectedTicker.toUpperCase()) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
       const c = item.defaultClassification;
+      const text = `${item.headline} ${item.source} ${item.ticker || ''} ${c?.recommended_action || ''}`.toLowerCase();
+      if (!text.includes(q)) return false;
+    }
+    return true;
+  }, [selectedTicker, searchQuery]);
 
-      // Filter modes
-      if (selectedFilter === 'HIGH' && c?.impact_tier?.toLowerCase() !== 'high') return false;
-      if (selectedFilter === 'MATERIAL' && !c?.is_material_risk) return false;
-      if (selectedFilter === 'BULLISH' && c?.sentiment?.toLowerCase() !== 'bullish') return false;
-      if (selectedFilter === 'BEARISH' && c?.sentiment?.toLowerCase() !== 'bearish') return false;
+  // ── Stream 1: analyzed signals
+  const analyzedSignals = useMemo(() => {
+    if (selectedFilter === 'EDGAR') return [];
 
-      // Ticker filter
-      if (selectedTicker && item.ticker?.toUpperCase() !== selectedTicker.toUpperCase()) {
-        return false;
-      }
+    const pool = selectedFilter === 'SAVED' ? (userPreferences?.savedSignals || []) : feed;
 
-      // Keyword search
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const text = `${item.headline} ${item.source} ${item.ticker || ''} ${c?.recommended_action || ''}`.toLowerCase();
-        if (!text.includes(q)) return false;
-      }
-
-      return true;
+    const list = pool.filter(item => {
+      const c = item.defaultClassification;
+      if (!c) return false;
+      if (selectedFilter === 'HIGH' && c.impact_tier?.toLowerCase() !== 'high') return false;
+      if (selectedFilter === 'MATERIAL' && !c.is_material_risk) return false;
+      if (sentimentFilter && c.sentiment?.toLowerCase() !== sentimentFilter) return false;
+      return matchesQuery(item);
     });
-  }, [feed, edgarItems, selectedFilter, selectedTicker, searchQuery, userPreferences?.savedSignals]);
 
-  // High-level KPIs
-  const highRiskCount = feed.filter(i => i.defaultClassification?.impact_tier?.toLowerCase() === 'high').length;
-  const materialRiskCount = feed.filter(i => i.defaultClassification?.is_material_risk).length;
-  const edgarCount = edgarItems.length;
-  const savedCount = (userPreferences?.savedSignals || []).length;
+    if (sortMode === 'impact') {
+      return [...list].sort(
+        (a, b) => (b.defaultClassification?.urgency_score || 0) - (a.defaultClassification?.urgency_score || 0)
+      );
+    }
+    return list;
+  }, [feed, userPreferences?.savedSignals, selectedFilter, sentimentFilter, sortMode, matchesQuery]);
+
+  // ── Stream 2: filings still waiting on analysis
+  const pendingFilings = useMemo(() => {
+    if (sentimentFilter) return []; // no classification yet, so sentiment cannot match
+    // Signals saved before they were analyzed still belong on the saved desk.
+    if (selectedFilter === 'SAVED') {
+      return (userPreferences?.savedSignals || []).filter(i => !i.defaultClassification).filter(matchesQuery);
+    }
+    if (selectedFilter !== 'ALL' && selectedFilter !== 'EDGAR') return [];
+    return edgarItems.filter(matchesQuery);
+  }, [edgarItems, userPreferences?.savedSignals, selectedFilter, sentimentFilter, matchesQuery]);
+
+  const visibleFilings = showAllFilings ? pendingFilings : pendingFilings.slice(0, 6);
+
+  // ── Counts driving the filter tiles
+  const counts = {
+    ALL: feed.length + edgarItems.length,
+    HIGH: feed.filter(i => i.defaultClassification?.impact_tier?.toLowerCase() === 'high').length,
+    MATERIAL: feed.filter(i => i.defaultClassification?.is_material_risk).length,
+    EDGAR: edgarItems.length,
+    SAVED: (userPreferences?.savedSignals || []).length,
+  };
+
+  const FILTER_TILES = [
+    { id: 'ALL', label: 'Everything', hint: 'Signals + filings', Icon: Layers, accent: 'text-white', ring: 'border-cyan-500/50 bg-cyan-500/10' },
+    { id: 'HIGH', label: 'High impact', hint: 'Move markets', Icon: Flame, accent: 'text-rose-400', ring: 'border-rose-500/50 bg-rose-500/10' },
+    { id: 'MATERIAL', label: 'Material risk', hint: 'Needs attention', Icon: AlertOctagon, accent: 'text-amber-400', ring: 'border-amber-500/50 bg-amber-500/10' },
+    { id: 'EDGAR', label: 'New filings', hint: 'Awaiting analysis', Icon: Landmark, accent: 'text-cyan-400', ring: 'border-cyan-500/50 bg-cyan-500/10' },
+    { id: 'SAVED', label: 'Saved', hint: 'Your desk', Icon: Star, accent: 'text-indigo-300', ring: 'border-indigo-500/50 bg-indigo-500/10' },
+  ];
 
   return (
-    <div className="space-y-6 text-left">
-      
-      {/* ── Top Header Banner & Live Quantitative Metrics */}
-      <div className="glass-panel rounded-2xl p-6 border border-slate-800 relative overflow-hidden">
+    <div className="space-y-5 text-left">
+
+      {/* ── Header: what this tab does, and when it last refreshed ───────── */}
+      <div className="glass-panel rounded-2xl p-5 sm:p-6 border border-slate-800 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-amber-500/10 via-rose-500/5 to-transparent blur-3xl pointer-events-none" />
-        
-        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+
+        <div className="relative flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="max-w-2xl">
-            <div className="flex items-center space-x-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
+            <div className="flex items-center space-x-2 text-amber-400 text-[11px] font-bold uppercase tracking-wider mb-1.5">
               <Radio className="h-3.5 w-3.5 animate-pulse" />
-              <span>NVIDIA Nemotron NIM · Live SEC EDGAR 8-K Router</span>
+              <span>Live feed · analyzed by NVIDIA Nemotron</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              News & Market Volatility Router
+              News &amp; Signal Router
             </h2>
             <p className="text-xs sm:text-sm text-slate-400 mt-1.5 leading-relaxed">
-              Real-time financial intelligence transforming SEC 8-K filings and breaking wire news into actionable risk tiers, material anomaly alerts, and hedging instructions.
+              Breaking headlines and fresh SEC 8-K filings, each turned into three plain answers:
+              <span className="text-slate-300 font-semibold"> how urgent it is</span>,
+              <span className="text-slate-300 font-semibold"> what it means</span>, and
+              <span className="text-slate-300 font-semibold"> what to do about it</span>.
             </p>
           </div>
 
-          {/* KPI Metrics Strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
-            <div className="bg-slate-950/80 border border-rose-500/30 rounded-xl p-3 text-center min-w-[90px]">
-              <div className="text-2xl font-mono font-black text-rose-400">{highRiskCount}</div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">High Impact</div>
-            </div>
-            <div className="bg-slate-950/80 border border-amber-500/30 rounded-xl p-3 text-center min-w-[90px]">
-              <div className="text-2xl font-mono font-black text-amber-400">{materialRiskCount}</div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Material Risk</div>
-            </div>
-            <div className="bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3 text-center min-w-[90px]">
-              <div className="text-2xl font-mono font-black text-cyan-400">{edgarCount}</div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">SEC 8-K Live</div>
-            </div>
-            <div className="bg-slate-950/80 border border-indigo-500/30 rounded-xl p-3 text-center min-w-[90px]">
-              <div className="text-2xl font-mono font-black text-indigo-300">{savedCount}</div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Saved Desk</div>
-            </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[11px] text-slate-500 hidden sm:flex items-center space-x-1">
+              <Clock className="h-3 w-3" />
+              <span>Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </span>
+            <button
+              type="button"
+              onClick={fetchEdgarFilings}
+              disabled={edgarLoading}
+              className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-cyan-500/40 text-xs font-semibold text-slate-300 hover:text-cyan-300 flex items-center space-x-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${edgarLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsConsoleOpen(v => !v)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer"
+            >
+              {isConsoleOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <PlusCircle className="h-3.5 w-3.5" />}
+              <span>Add a headline</span>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* ── Collapsible "Triage New Signal" Drawer */}
-      <div className="glass-panel rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-        <div className="p-4 bg-slate-950/70 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-white font-bold text-sm">
+      {/* ── Ingest console (collapsed by default) ────────────────────────── */}
+      {isConsoleOpen && (
+        <div className="glass-panel rounded-2xl border border-amber-500/30 overflow-hidden shadow-xl animate-fadeIn">
+          <div className="px-5 py-3 bg-slate-950/70 border-b border-slate-800 flex items-center space-x-2 text-white font-bold text-sm">
             <Zap className="h-4 w-4 text-amber-400" />
-            <span>Signal Ingestion & AI Triage Console</span>
+            <span>Analyze your own headline</span>
           </div>
 
-          <div className="flex items-center space-x-3">
-            <button
-              type="button"
-              onClick={() => setIsConsoleOpen(prev => !prev)}
-              className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer"
-            >
-              {isConsoleOpen ? (
-                <>
-                  <ChevronUp className="h-3.5 w-3.5" />
-                  <span>Hide Ingestion Console</span>
-                </>
-              ) : (
-                <>
-                  <PlusCircle className="h-3.5 w-3.5" />
-                  <span>+ Ingest Custom Signal</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {isConsoleOpen && (
-          <div className="p-6 space-y-5 bg-slate-900/40 animate-fadeIn">
-            {/* 1-Click Institutional Presets */}
+          <div className="p-5 space-y-5 bg-slate-900/40">
             <div>
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                1-Click Institutional Hackathon Presets:
+                Start from an example
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 {PRESET_SIGNALS.map((preset, idx) => (
@@ -734,7 +698,7 @@ const TabNews = () => {
                     className="p-3 rounded-xl bg-slate-950/80 hover:bg-slate-800/90 border border-slate-800 hover:border-slate-700 transition-all text-left flex flex-col justify-between cursor-pointer group disabled:opacity-50"
                   >
                     <div>
-                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${preset.badgeColor}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${preset.badgeColor}`}>
                         {preset.tag}
                       </span>
                       <p className="text-xs font-semibold text-slate-200 mt-2 group-hover:text-amber-300 transition-colors line-clamp-2">
@@ -742,37 +706,34 @@ const TabNews = () => {
                       </p>
                     </div>
                     <span className="text-[10px] text-amber-400 font-bold mt-2 flex items-center space-x-1">
-                      <span>Route with Nemotron</span>
-                      <span>➔</span>
+                      <span>Analyze this</span>
+                      <ArrowUpRight className="h-3 w-3" />
                     </span>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Custom Input Form */}
             <form onSubmit={(e) => { e.preventDefault(); handleRouteNews(); }} className="space-y-3 pt-4 border-t border-slate-800">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
                 <div className="lg:col-span-8">
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    Breaking Headline or Event Statement *
-                  </label>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Headline *</label>
                   <input
                     type="text"
                     required
                     value={inputHeadline}
                     onChange={(e) => setInputHeadline(e.target.value)}
-                    placeholder="e.g. Antitrust Regulators Subpoena Major Cloud Computing Operator Over AI Bundling..."
+                    placeholder="e.g. Regulators subpoena major cloud operator over AI bundling..."
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                   />
                 </div>
                 <div className="lg:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Ticker (Optional)</label>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Ticker</label>
                   <input
                     type="text"
                     value={inputTicker}
                     onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
-                    placeholder="NVDA, AAPL..."
+                    placeholder="NVDA"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 uppercase focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -782,19 +743,21 @@ const TabNews = () => {
                     type="text"
                     value={inputSource}
                     onChange={(e) => setInputSource(e.target.value)}
-                    placeholder="Bloomberg, Reuters..."
+                    placeholder="Bloomberg"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Article Excerpt or Press Release Body</label>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  Article excerpt <span className="text-slate-600 font-normal">(optional — improves the analysis)</span>
+                </label>
                 <textarea
                   rows={2}
                   value={inputContent}
                   onChange={(e) => setInputContent(e.target.value)}
-                  placeholder="Paste context paragraph or filing details..."
+                  placeholder="Paste a paragraph of context or filing detail..."
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 resize-none"
                 />
               </div>
@@ -813,98 +776,107 @@ const TabNews = () => {
                   className="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 transition-all"
                 >
                   {isRouting ? (
-                    <>
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      <span>Nemotron Classifying...</span>
-                    </>
+                    <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Analyzing...</span></>
                   ) : (
-                    <>
-                      <Send className="h-3.5 w-3.5" />
-                      <span>Route Signal with Nemotron</span>
-                    </>
+                    <><Send className="h-3.5 w-3.5" /><span>Analyze headline</span></>
                   )}
                 </button>
               </div>
             </form>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* ── Filter tiles: the counts and the controls are the same thing ─── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+        {FILTER_TILES.map(tile => {
+          const TileIcon = tile.Icon;
+          const isActive = selectedFilter === tile.id;
+          return (
+            <button
+              key={tile.id}
+              type="button"
+              onClick={() => setSelectedFilter(tile.id)}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                isActive ? tile.ring : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-2xl font-mono font-black ${isActive ? tile.accent : 'text-slate-300'}`}>
+                  {counts[tile.id]}
+                </span>
+                <TileIcon className={`h-4 w-4 ${isActive ? tile.accent : 'text-slate-600'}`} />
+              </div>
+              <div className="text-[11px] font-bold text-slate-200 mt-1">{tile.label}</div>
+              <div className="text-[10px] text-slate-500">{tile.hint}</div>
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── Filter Tabs & Watchlist Bar */}
-      <div className="glass-panel rounded-2xl p-4 border border-slate-800 space-y-4">
+      {/* ── Search, sentiment, sort, watchlist ───────────────────────────── */}
+      <div className="glass-panel rounded-2xl p-4 border border-slate-800 space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          
-          {/* Main Filter Chips */}
-          <div className="flex flex-wrap gap-1.5 text-xs">
-            {[
-              { id: 'ALL', label: 'All Signals & Filings', count: feed.length + edgarItems.length },
-              { id: 'HIGH', label: '🔥 High Impact', count: highRiskCount },
-              { id: 'MATERIAL', label: '🚨 Material Risks', count: materialRiskCount },
-              { id: 'EDGAR', label: '🏛️ SEC 8-K Feed', count: edgarCount },
-              { id: 'SAVED', label: '⭐ Saved to My Desk', count: savedCount },
-            ].map(btn => (
-              <button
-                key={btn.id}
-                type="button"
-                onClick={() => setSelectedFilter(btn.id)}
-                className={`px-3 py-1.5 rounded-xl font-semibold transition-all cursor-pointer flex items-center space-x-1.5 ${
-                  selectedFilter === btn.id
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
-                    : 'text-slate-400 hover:text-white bg-slate-900/70 border border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <span>{btn.label}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                  selectedFilter === btn.id ? 'bg-cyan-500/30 text-white' : 'bg-slate-800 text-slate-400'
-                }`}>
-                  {btn.count}
-                </span>
-              </button>
-            ))}
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search headlines, sources or tickers..."
+              className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+            />
           </div>
 
-          {/* Search Input & Reset */}
-          <div className="flex items-center space-x-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search signals or tickers..."
-                className="pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 w-48 sm:w-56"
-              />
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Sentiment */}
+            <div className="flex items-center rounded-xl border border-slate-800 bg-slate-950/70 p-0.5">
+              {[
+                { id: null, label: 'Any' },
+                { id: 'bullish', label: 'Bullish' },
+                { id: 'bearish', label: 'Bearish' },
+              ].map(opt => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => setSentimentFilter(opt.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                    sentimentFilter === opt.id ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
-            {(selectedFilter !== 'ALL' || searchQuery || selectedTicker) && (
+
+            {/* Sort */}
+            <button
+              type="button"
+              onClick={() => setSortMode(m => (m === 'impact' ? 'newest' : 'impact'))}
+              title="Change ordering"
+              className="px-2.5 py-1.5 rounded-xl bg-slate-950/70 border border-slate-800 text-[11px] font-semibold text-slate-300 hover:text-cyan-300 hover:border-slate-700 flex items-center space-x-1.5 transition-colors cursor-pointer"
+            >
+              <ArrowUpDown className="h-3 w-3" />
+              <span>{sortMode === 'impact' ? 'Most urgent first' : 'Newest first'}</span>
+            </button>
+
+            {filtersActive && (
               <button
                 type="button"
                 onClick={handleResetFilters}
-                title="Reset active filters"
-                className="p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-semibold text-slate-400 hover:text-cyan-300 flex items-center space-x-1.5 transition-colors cursor-pointer"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
+                <RotateCcw className="h-3 w-3" />
+                <span>Clear filters</span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={fetchEdgarFilings}
-              disabled={edgarLoading}
-              title="Refresh SEC 8-K Feed"
-              className="p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-400 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${edgarLoading ? 'animate-spin' : ''}`} />
-            </button>
           </div>
-
         </div>
 
-        {/* Watchlist Ticker Strip */}
-        <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-2 text-xs">
-          <div className="flex items-center space-x-2 flex-wrap gap-1.5">
-            <span className="text-[11px] font-bold text-slate-400 flex items-center space-x-1">
-              <Sliders className="h-3 w-3 text-cyan-400" />
-              <span>Watchlist Filter:</span>
-            </span>
+        {/* Watchlist */}
+        <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center flex-wrap gap-1.5">
+            <span className="text-[11px] font-bold text-slate-400 mr-0.5">Watchlist:</span>
             {activeWatchlist.map(ticker => {
               const isSelected = selectedTicker === ticker;
               return (
@@ -914,7 +886,7 @@ const TabNews = () => {
                   onClick={() => setSelectedTicker(isSelected ? null : ticker)}
                   className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20'
+                      ? 'bg-cyan-500 text-slate-950 border-cyan-400'
                       : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-slate-700'
                   }`}
                 >
@@ -929,41 +901,112 @@ const TabNews = () => {
             onClick={openProfileModal}
             className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer flex items-center space-x-1"
           >
-            <span>Edit Watchlist in Auth0 Profile</span>
-            <span>➔</span>
+            <span>Edit watchlist</span>
+            <ArrowUpRight className="h-3 w-3" />
           </button>
         </div>
-
       </div>
 
-      {/* ── Main Unified Signal Feed */}
-      <div className="space-y-4">
-        {combinedSignals.length === 0 ? (
-          <div className="glass-panel rounded-2xl p-12 border border-slate-800 text-center">
-            <BarChart2 className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-            <h4 className="text-base font-bold text-slate-300">No Signals Match Your Current Filter</h4>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              Try resetting your search query or selecting "All Signals & Filings" to see the full intelligence stream.
-            </p>
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-            >
-              Reset Filters
-            </button>
+      {/* ── Stream 1: analyzed signals ───────────────────────────────────── */}
+      {selectedFilter !== 'EDGAR' && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
+              <Activity className="h-3.5 w-3.5 text-cyan-400" />
+              <span>{selectedFilter === 'SAVED' ? 'Saved signals' : 'Analyzed signals'}</span>
+              <span className="text-slate-600 font-mono normal-case">({analyzedSignals.length})</span>
+            </h3>
+            <span className="text-[11px] text-slate-500">
+              {sortMode === 'impact' ? 'Sorted by urgency' : 'Sorted by newest'}
+            </span>
           </div>
-        ) : (
-          combinedSignals.map(item => (
-            <NewsCard
-              key={item.id}
-              item={item}
-              onDismiss={handleDismiss}
-              onRouteItem={handleRouteCardItem}
-            />
-          ))
-        )}
-      </div>
+
+          {analyzedSignals.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-8 text-center">
+              <Inbox className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+              <p className="text-sm font-bold text-slate-300">
+                {selectedFilter === 'SAVED' ? 'Nothing saved yet' : 'No analyzed signals match your filters'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                {selectedFilter === 'SAVED'
+                  ? 'Use the bookmark icon on any signal to keep it on your desk.'
+                  : 'Clear the filters, or analyze a filing below to add one to the stream.'}
+              </p>
+              {filtersActive && (
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="mt-3 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          ) : (
+            analyzedSignals.map(item => (
+              <SignalCard key={item.id} item={item} onDismiss={handleDismiss} />
+            ))
+          )}
+        </section>
+      )}
+
+      {/* ── Stream 2: filings awaiting analysis ──────────────────────────── */}
+      {(selectedFilter === 'ALL' || selectedFilter === 'EDGAR' || pendingFilings.length > 0) && (
+        <section className="space-y-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
+              <FileText className="h-3.5 w-3.5 text-slate-500" />
+              <span>{selectedFilter === 'SAVED' ? 'Saved · not analyzed yet' : 'Awaiting analysis · live SEC 8-K'}</span>
+              <span className="text-slate-600 font-mono normal-case">({pendingFilings.length})</span>
+            </h3>
+            <span className="text-[11px] text-slate-500 hidden sm:block">
+              Analyze a filing to move it into the stream above
+            </span>
+          </div>
+
+          {edgarLoading && pendingFilings.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-6 flex items-center justify-center space-x-2 text-xs text-slate-400">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+              <span>Loading filings from SEC EDGAR...</span>
+            </div>
+          ) : pendingFilings.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-6 text-center text-xs text-slate-500">
+              No filings waiting. Hit refresh to pull the latest 8-K reports.
+            </div>
+          ) : (
+            <>
+              {visibleFilings.map(item => (
+                <FilingRow
+                  key={item.id}
+                  item={item}
+                  onAnalyze={handleAnalyzeFiling}
+                  onDismiss={handleDismiss}
+                />
+              ))}
+
+              {pendingFilings.length > visibleFilings.length && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllFilings(true)}
+                  className="w-full py-2.5 rounded-xl border border-slate-800 bg-slate-950/40 text-xs font-semibold text-slate-400 hover:text-cyan-300 hover:border-slate-700 transition-colors cursor-pointer"
+                >
+                  Show {pendingFilings.length - visibleFilings.length} more filings
+                </button>
+              )}
+
+              {showAllFilings && pendingFilings.length > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllFilings(false)}
+                  className="w-full py-2.5 rounded-xl border border-slate-800 bg-slate-950/40 text-xs font-semibold text-slate-400 hover:text-cyan-300 hover:border-slate-700 transition-colors cursor-pointer"
+                >
+                  Show fewer filings
+                </button>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
     </div>
   );
