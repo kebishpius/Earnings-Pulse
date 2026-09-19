@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert, Trash2, RotateCcw, Sparkles, Upload, FileText, X, Database, ChevronDown, ChevronUp } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert, Trash2, RotateCcw, Sparkles, Upload, FileText, X, Database, ChevronDown, ChevronUp, Download, ExternalLink, HelpCircle, Briefcase } from 'lucide-react';
 import { INITIAL_PORTFOLIO } from '../mockData/samples';
 import { useAppAuth } from '../auth/AuthContext';
+
 
 // Client-side quantitative risk auditor if backend is offline/unreachable
 const generateClientSideAudit = (holdings, transactions) => {
@@ -193,27 +194,113 @@ const TabPortfolio = () => {
     return 'text-emerald-400 border-emerald-500/50 bg-emerald-950/20';
   };
 
-  // ── Import handlers ──────────────────────────────────────────────────────────
-  const applyImportedTransactions = (parsedTxs) => {
-    const newTxs = parsedTxs.map((t, i) => ({
-      id: `imported-${Date.now()}-${i}`,
-      date: t.date || new Date().toISOString().split('T')[0],
-      description: t.description,
-      amount: parseFloat(t.amount) || 0,
-      category: t.category || 'Other'
-    })).filter(t => t.amount > 0);
+  // ── Sample Broker Export Presets for Testing ─────────────────────────────
+  const BROKER_PRESETS = {
+    schwab: {
+      name: "Charles Schwab Positions CSV",
+      csv: `Symbol,Description,Quantity,Price,Current Value
+NVDA,NVIDIA Corporation,120,$118.50,$14220.00
+AAPL,Apple Inc.,60,$224.20,$13452.00
+MSFT,Microsoft Corporation,35,$430.10,$15053.50
+VOO,Vanguard S&P 500 ETF,25,$510.40,$12760.00
+SWVXX,Schwab Value Advantage Cash,5000,$1.00,$5000.00`
+    },
+    robinhood: {
+      name: "Robinhood Holdings CSV",
+      csv: `Symbol,Name,Shares,Last Price,Total Value
+TSLA,Tesla Inc.,45,$218.80,$9846.00
+AMD,Advanced Micro Devices,80,$154.20,$12336.00
+BTC,Bitcoin,0.35,$62400.00,$21840.00
+ETH,Ethereum,4.5,$2450.00,$11025.00
+USD,Cash Balance,2500,$1.00,$2500.00`
+    },
+    fidelity: {
+      name: "Fidelity Portfolio CSV",
+      csv: `Symbol,Description,Quantity,Last Price,Current Value
+AMZN,Amazon.com Inc,75,$186.40,$13980.00
+GOOGL,Alphabet Inc Class A,60,$162.30,$9738.00
+SPY,SPDR S&P 500 ETF Trust,30,$558.20,$16746.00
+QQQ,Invesco QQQ Trust,25,$482.10,$12052.50
+SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
+    },
+    bank: {
+      name: "Bank Expenses & Subscriptions",
+      csv: `Date,Description,Amount,Category
+2026-08-01,AWS Cloud Server,145.00,Cloud & Infra
+2026-08-03,Midjourney AI Subscription,60.00,AI Tools
+2026-08-05,Equinox Luxury Gym,295.00,Fitness
+2026-08-09,Duplicate Spotify Family,19.99,Entertainment
+2026-08-14,Bloomberg Terminal Add-on,420.00,Finance Sub
+2026-08-18,Speculative Options Outflow,650.00,Trading Outflow
+2026-08-22,ChatGPT Plus Team Account,50.00,AI Tools`
+    }
+  };
 
-    setTransactions(newTxs);
+  const [activeBrokerGuide, setActiveBrokerGuide] = useState(null);
+
+  // ── Import handlers ──────────────────────────────────────────────────────────
+  const applyImportedData = (data) => {
+    let nextHoldings = holdings;
+    let nextTxs = transactions;
+    let successNotes = [];
+
+    // 1. Process Stock Holdings
+    if (data.holdings && data.holdings.length > 0) {
+      const validHoldings = data.holdings.map((h) => ({
+        symbol: h.symbol.toUpperCase(),
+        asset_name: h.asset_name || h.symbol,
+        asset_type: h.asset_type || 'Equity',
+        allocation_pct: parseFloat(h.allocation_pct) || 0,
+        current_value: parseFloat(h.current_value) || 0
+      })).filter(h => h.current_value > 0);
+
+      if (validHoldings.length > 0) {
+        // Recompute allocation percentages if needed
+        const totalVal = validHoldings.reduce((acc, h) => acc + h.current_value, 0);
+        if (totalVal > 0) {
+          validHoldings.forEach(h => {
+            h.allocation_pct = Math.round((h.current_value / totalVal) * 1000) / 10;
+          });
+        }
+        nextHoldings = validHoldings;
+        setHoldings(validHoldings);
+        successNotes.push(`${validHoldings.length} stock holdings ($${totalVal.toLocaleString()})`);
+      }
+    }
+
+    // 2. Process Transactions
+    if (data.transactions && data.transactions.length > 0) {
+      const validTxs = data.transactions.map((t, i) => ({
+        id: `imported-${Date.now()}-${i}`,
+        date: t.date || new Date().toISOString().split('T')[0],
+        description: t.description,
+        amount: parseFloat(t.amount) || 0,
+        category: t.category || 'Other'
+      })).filter(t => t.amount > 0);
+
+      if (validTxs.length > 0) {
+        nextTxs = validTxs;
+        setTransactions(validTxs);
+        successNotes.push(`${validTxs.length} ledger transactions`);
+      }
+    }
+
+    if (successNotes.length === 0) {
+      throw new Error('No valid holdings or transactions could be extracted from this file.');
+    }
+
     setIsLedgerModified(true);
     setUsingPersonalData(true);
     setAuditResult(null);
+
     // Persist to Auth0-scoped localStorage
     setUploadedPortfolio({
-      holdings,
-      transactions: newTxs,
+      holdings: nextHoldings,
+      transactions: nextTxs,
       last_audit: null
     });
-    setImportSuccess(`✓ Successfully imported ${newTxs.length} transactions. Run the Nemotron audit to analyze your real data!`);
+
+    setImportSuccess(`✓ Successfully imported ${successNotes.join(' and ')}! Run the Nemotron Quantitative Audit to analyze your real portfolio risk.`);
     setPasteText('');
   };
 
@@ -230,28 +317,50 @@ const TabPortfolio = () => {
       });
       if (!res.ok) throw new Error(`Parse API error ${res.status}`);
       const data = await res.json();
-      if (!data.transactions || data.transactions.length === 0) {
-        throw new Error('No transactions found in the uploaded data. Check the format.');
-      }
-      applyImportedTransactions(data.transactions);
+      applyImportedData(data);
     } catch (err) {
-      // Fallback: simple comma/tab split
       console.warn('API parse failed, using client fallback:', err);
       try {
+        // Deterministic client fallback: check if header has stock symbols or transactions
         const lines = text.trim().split('\n').filter(l => l.trim());
-        const parsed = lines.slice(1).map((line, i) => {
-          const cols = line.split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
-          return {
-            date: cols[0] || '',
-            description: cols[1] || `Transaction ${i + 1}`,
-            amount: Math.abs(parseFloat(cols[2]?.replace(/[^\d.-]/g, '') || '0')),
-            category: cols[3] || 'Other'
-          };
-        }).filter(t => t.amount > 0);
-        if (parsed.length === 0) throw new Error('Could not parse any transactions from the input.');
-        applyImportedTransactions(parsed);
+        if (lines.length < 2) throw new Error('File has insufficient lines to parse.');
+        const header = lines[0].toLowerCase();
+        const isStockCSV = header.includes('symbol') || header.includes('ticker') || header.includes('shares') || header.includes('quantity') || header.includes('holding');
+
+        if (isStockCSV) {
+          const parsedHoldings = [];
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
+            const sym = cols[0]?.toUpperCase().replace(/[^A-Z]/g, '');
+            if (!sym || sym === 'TOTAL') continue;
+            const desc = cols[1] || sym;
+            const valStr = cols[4] || cols[3] || cols[2] || '0';
+            const val = Math.abs(parseFloat(valStr.replace(/[^\d.-]/g, '') || '0'));
+            if (val > 0) {
+              parsedHoldings.push({
+                symbol: sym,
+                asset_name: desc,
+                asset_type: ['BTC', 'ETH'].includes(sym) ? 'Crypto' : (['USD', 'CASH', 'SWVXX', 'SPAXX'].includes(sym) ? 'Cash' : 'Equity'),
+                current_value: val,
+                allocation_pct: 0
+              });
+            }
+          }
+          applyImportedData({ holdings: parsedHoldings, transactions: [] });
+        } else {
+          const parsed = lines.slice(1).map((line, i) => {
+            const cols = line.split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
+            return {
+              date: cols[0] || '',
+              description: cols[1] || `Transaction ${i + 1}`,
+              amount: Math.abs(parseFloat(cols[2]?.replace(/[^\d.-]/g, '') || '0')),
+              category: cols[3] || 'Other'
+            };
+          }).filter(t => t.amount > 0);
+          applyImportedData({ holdings: [], transactions: parsed });
+        }
       } catch (fallbackErr) {
-        setImportError(fallbackErr.message || 'Import failed. Please check your data format.');
+        setImportError(fallbackErr.message || 'Import failed. Please verify your CSV format.');
       }
     } finally {
       setImportLoading(false);
@@ -272,6 +381,7 @@ const TabPortfolio = () => {
     if (file) handleFileUpload(file);
   };
 
+
   return (
     <div className="space-y-6">
 
@@ -287,8 +397,8 @@ const TabPortfolio = () => {
               <Upload className={`h-4 w-4 ${showImportPanel ? 'text-cyan-400' : 'text-slate-400 group-hover:text-cyan-400'} transition-colors`} />
             </div>
             <div>
-              <p className="text-sm font-bold text-white">Import Your Financial Data</p>
-              <p className="text-xs text-slate-400">Upload a CSV bank export or paste transactions for personalized AI analysis</p>
+              <p className="text-sm font-bold text-white">Import Your Stock Portfolio or Financial Data</p>
+              <p className="text-xs text-slate-400">Upload CSV positions from Charles Schwab, Fidelity, Robinhood, Vanguard, or bank statements</p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
@@ -304,20 +414,145 @@ const TabPortfolio = () => {
 
         {showImportPanel && (
           <div className="px-5 pb-5 space-y-4 border-t border-slate-800 pt-4 animate-fadeIn">
+            {/* Quick 1-Click Test Presets */}
+            <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>Test Real Broker Formats (1-Click Instant Preview):</span>
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">No login required to test</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setPasteText(BROKER_PRESETS.schwab.csv); handleImportText(BROKER_PRESETS.schwab.csv); }}
+                  className="px-2.5 py-1.5 rounded-lg bg-blue-950/40 hover:bg-blue-900/50 border border-blue-500/30 text-blue-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
+                >
+                  <Briefcase className="h-3 w-3 shrink-0" />
+                  <span>Schwab Positions</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPasteText(BROKER_PRESETS.robinhood.csv); handleImportText(BROKER_PRESETS.robinhood.csv); }}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
+                >
+                  <Briefcase className="h-3 w-3 shrink-0" />
+                  <span>Robinhood CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPasteText(BROKER_PRESETS.fidelity.csv); handleImportText(BROKER_PRESETS.fidelity.csv); }}
+                  className="px-2.5 py-1.5 rounded-lg bg-green-950/40 hover:bg-green-900/50 border border-green-500/30 text-green-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
+                >
+                  <Briefcase className="h-3 w-3 shrink-0" />
+                  <span>Fidelity Portfolio</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPasteText(BROKER_PRESETS.bank.csv); handleImportText(BROKER_PRESETS.bank.csv); }}
+                  className="px-2.5 py-1.5 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-500/30 text-purple-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
+                >
+                  <CreditCard className="h-3 w-3 shrink-0" />
+                  <span>Bank Statement</span>
+                </button>
+              </div>
+            </div>
+
+            {/* How to Grab Your Portfolio Guide Accordion */}
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setActiveBrokerGuide(g => g ? null : 'schwab')}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-slate-300 hover:text-white font-medium cursor-pointer"
+              >
+                <span className="flex items-center space-x-2 text-cyan-400 font-semibold">
+                  <HelpCircle className="h-3.5 w-3.5" />
+                  <span>How to export your real portfolio from your broker (Step-by-Step)</span>
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  {activeBrokerGuide ? 'Hide Guide ▲' : 'Show Instructions ▼'}
+                </span>
+              </button>
+
+              {activeBrokerGuide && (
+                <div className="px-4 pb-3.5 pt-1 space-y-3 border-t border-slate-800/80 animate-fadeIn text-slate-300">
+                  <div className="flex space-x-2 border-b border-slate-800 pb-2">
+                    {[
+                      { id: 'schwab', label: 'Charles Schwab' },
+                      { id: 'robinhood', label: 'Robinhood' },
+                      { id: 'fidelity', label: 'Fidelity' },
+                      { id: 'vanguard', label: 'Vanguard / Webull' }
+                    ].map(b => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => setActiveBrokerGuide(b.id)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          activeBrokerGuide === b.id ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {activeBrokerGuide === 'schwab' && (
+                    <div className="space-y-1.5 text-[11px]">
+                      <p className="font-bold text-white">Charles Schwab:</p>
+                      <p>1. Log in to <span className="text-cyan-400 font-mono">schwab.com</span> and go to <strong>Accounts &rarr; Positions</strong>.</p>
+                      <p>2. In the upper-right corner of your positions table, click the <strong>Export</strong> icon (sheet with arrow).</p>
+                      <p>3. Choose <strong>CSV</strong>. Your browser downloads <span className="text-cyan-400 font-mono">Positions.csv</span>.</p>
+                      <p>4. Drag and drop that file into the box below or paste its text!</p>
+                    </div>
+                  )}
+
+                  {activeBrokerGuide === 'robinhood' && (
+                    <div className="space-y-1.5 text-[11px]">
+                      <p className="font-bold text-white">Robinhood:</p>
+                      <p>1. In Robinhood (Web or Mobile), click or tap the <strong>Account</strong> icon.</p>
+                      <p>2. Select <strong>Reports and Statements</strong> &rarr; <strong>Export Account Activity</strong>.</p>
+                      <p>3. Export your current positions or monthly holdings as a <strong>.CSV</strong> file.</p>
+                      <p>4. Drop the CSV file into EarningsPulse to instantly evaluate single-stock risk & options exposure.</p>
+                    </div>
+                  )}
+
+                  {activeBrokerGuide === 'fidelity' && (
+                    <div className="space-y-1.5 text-[11px]">
+                      <p className="font-bold text-white">Fidelity:</p>
+                      <p>1. Log in to <span className="text-cyan-400 font-mono">fidelity.com</span> &rarr; <strong>Accounts & Trade &rarr; Portfolio</strong>.</p>
+                      <p>2. Click on the <strong>Positions</strong> tab.</p>
+                      <p>3. Click the <strong>Download</strong> icon (downward arrow) at the top right of the positions table.</p>
+                      <p>4. Saves as <span className="text-cyan-400 font-mono">Portfolio_Positions.csv</span>. Upload it below!</p>
+                    </div>
+                  )}
+
+                  {activeBrokerGuide === 'vanguard' && (
+                    <div className="space-y-1.5 text-[11px]">
+                      <p className="font-bold text-white">Vanguard / Webull / E*TRADE:</p>
+                      <p>• <strong>Vanguard:</strong> Go to <strong>My Accounts &rarr; Balances & Holdings &rarr; Download (CSV)</strong>.</p>
+                      <p>• <strong>Webull:</strong> In Webull Desktop/Web, open <strong>Account &rarr; Assets &rarr; Export</strong>.</p>
+                      <p>• <strong>E*TRADE:</strong> Go to <strong>Accounts &rarr; Portfolios &rarr; Actions &rarr; Download to Spreadsheet (.csv)</strong>.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Drag-and-drop zone */}
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+              className={`border-2 border-dashed rounded-xl p-7 text-center cursor-pointer transition-all ${
                 dragOver ? 'border-cyan-500 bg-cyan-500/10' : 'border-slate-700 hover:border-cyan-500/50 hover:bg-slate-900/50'
               }`}
             >
               <FileText className={`h-8 w-8 mx-auto mb-3 ${dragOver ? 'text-cyan-400' : 'text-slate-500'}`} />
-              <p className="text-sm font-semibold text-white">Drop your bank CSV here</p>
-              <p className="text-xs text-slate-400 mt-1">or click to browse — supports CSV, TSV, and most bank exports</p>
-              <p className="text-[10px] text-slate-500 mt-2">Expected columns: Date, Description, Amount, Category (optional)</p>
+              <p className="text-sm font-semibold text-white">Drop your Broker CSV or Bank Statement here</p>
+              <p className="text-xs text-slate-400 mt-1">Supports Schwab, Fidelity, Robinhood, Vanguard, Webull, and standard bank exports</p>
+              <p className="text-[10px] text-slate-500 mt-2">Auto-detects Stock Holdings (Symbol, Quantity, Value) and Cash Flow (Date, Description, Amount)</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -329,16 +564,16 @@ const TabPortfolio = () => {
 
             {/* Paste area */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-2">Or paste CSV / transaction text directly:</label>
+              <label className="text-xs font-semibold text-slate-300 block mb-2">Or paste CSV raw text directly:</label>
               <textarea
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
-                placeholder={"Date,Description,Amount,Category\n2026-08-01,Netflix,15.99,Subscription\n2026-08-03,Whole Foods,87.42,Food & Dining\n2026-08-05,AWS Cloud,145.00,Cloud & Infra"}
+                placeholder={"Symbol,Description,Quantity,Price,Current Value\nNVDA,NVIDIA Corporation,120,$118.50,$14220.00\nAAPL,Apple Inc.,60,$224.20,$13452.00\nMSFT,Microsoft Corporation,35,$430.10,$15053.50"}
                 rows={5}
                 className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono placeholder-slate-600 focus:outline-none focus:border-cyan-500 resize-none"
               />
               <div className="flex items-center justify-between mt-2">
-                <p className="text-[10px] text-slate-500">Gemini AI will auto-categorize and structure your data</p>
+                <p className="text-[10px] text-slate-500">Gemini AI will intelligently normalize tickers, asset types & allocations</p>
                 <button
                   type="button"
                   disabled={!pasteText.trim() || importLoading}
@@ -346,7 +581,7 @@ const TabPortfolio = () => {
                   className="px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold rounded-lg disabled:opacity-40 cursor-pointer transition-all flex items-center space-x-1.5"
                 >
                   {importLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  <span>{importLoading ? 'Parsing with Gemini...' : 'Parse & Import'}</span>
+                  <span>{importLoading ? 'Parsing with Gemini...' : 'Parse & Import Portfolio'}</span>
                 </button>
               </div>
             </div>
@@ -363,6 +598,7 @@ const TabPortfolio = () => {
               </div>
             )}
           </div>
+
         )}
       </div>
 

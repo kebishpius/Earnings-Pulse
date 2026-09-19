@@ -322,35 +322,53 @@ Provide your expert financial advisory response:"""
         raise RuntimeError(f"Gemini advisor error: {str(e)}")
 
 
-def parse_csv_with_gemini(csv_text: str) -> list:
+def parse_csv_with_gemini(csv_text: str) -> dict:
     """
-    Use Gemini to parse raw CSV bank/broker statement text into structured transactions.
-    Returns a list of dicts: {date, description, amount, category}
+    Use Gemini to parse raw CSV bank or broker statement text into structured data.
+    Supports stock positions/holdings (Schwab, Fidelity, Robinhood, Vanguard, etc.)
+    and transaction ledgers.
+    Returns: {"holdings": [...], "transactions": [...]}
     """
     has_key = bool(GEMINI_API_KEY and GEMINI_API_KEY.strip() and not GEMINI_API_KEY.startswith("dummy"))
     if not has_key:
         raise ValueError("GEMINI_API_KEY not configured for CSV parsing.")
 
-    parse_prompt = f"""You are a financial data parser. Extract all transactions from the following bank/broker statement CSV or plain text.
+    parse_prompt = f"""You are a financial data parser for EarningsPulse. Extract structured data from the following bank or stock brokerage statement (e.g., Charles Schwab, Fidelity, Robinhood, Vanguard, E*TRADE, Webull, or bank export).
 
-Return a valid JSON array where each element has these exact fields:
-- "date": date string (YYYY-MM-DD format if possible, otherwise as-is)
-- "description": merchant or transaction name (string)
-- "amount": absolute dollar amount as a number (always positive, even for debits/withdrawals)
-- "category": categorize into one of: ["Subscription", "Food & Dining", "Travel", "Shopping", "Healthcare", "Entertainment", "Utilities", "Income", "Investment", "Cloud & Infra", "AI Tools", "Fitness", "Finance Sub", "Trading Outflow", "Other"]
+Analyze the data and extract:
+1. "holdings": If the data contains stock positions/holdings/portfolio allocations, extract each asset:
+   - "symbol": ticker symbol in uppercase (e.g., "NVDA", "AAPL", "MSFT", "VOO", "BTC", "USD")
+   - "asset_name": full company or fund name (e.g., "NVIDIA Corp", "Apple Inc.")
+   - "asset_type": one of ["Equity", "ETF", "Crypto", "Cash", "Options", "Bond"]
+   - "current_value": dollar market value as a number (e.g., 14220.00)
+   - "allocation_pct": allocation percentage (0 to 100) if available, or calculate (value / total * 100) if possible
+
+2. "transactions": If the data contains bank expenses, orders, or cash transactions, extract:
+   - "date": date string (YYYY-MM-DD format if possible, otherwise as-is)
+   - "description": merchant or trade name (string)
+   - "amount": absolute dollar amount as a positive number
+   - "category": categorize into one of: ["Subscription", "Food & Dining", "Travel", "Shopping", "Healthcare", "Entertainment", "Utilities", "Income", "Investment", "Cloud & Infra", "AI Tools", "Fitness", "Finance Sub", "Trading Outflow", "Other"]
 
 INPUT DATA:
 ---
-{csv_text[:4000]}
+{csv_text[:5000]}
 ---
 
-Return ONLY the JSON array, no explanation. Example format:
-[{{"date":"2026-08-01","description":"Netflix","amount":15.99,"category":"Subscription"}}]"""
+Return ONLY a valid JSON object matching this exact schema, with NO markdown backticks or commentary:
+{{
+  "holdings": [
+    {{"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Equity", "allocation_pct": 50.0, "current_value": 15000.0}}
+  ],
+  "transactions": [
+    {{"date": "2026-08-01", "description": "Trading Fee", "amount": 10.0, "category": "Trading Outflow"}}
+  ]
+}}"""
 
     try:
         from google import genai
         from google.genai import types
         import json
+        import re
 
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
@@ -362,12 +380,28 @@ Return ONLY the JSON array, no explanation. Example format:
             )
         )
         raw = response.text if hasattr(response, "text") else ""
-        # Extract JSON array from response
-        import re
-        match = re.search(r'\[[\s\S]*\]', raw)
-        if match:
-            return json.loads(match.group(0))
-        return json.loads(raw)
+        
+        # Look for JSON object or array
+        obj_match = re.search(r'\{[\s\S]*\}', raw)
+        if obj_match:
+            data = json.loads(obj_match.group(0))
+            if isinstance(data, dict):
+                return {
+                    "holdings": data.get("holdings", []),
+                    "transactions": data.get("transactions", [])
+                }
+
+        # Fallback array check
+        arr_match = re.search(r'\[[\s\S]*\]', raw)
+        if arr_match:
+            arr = json.loads(arr_match.group(0))
+            # Determine if array is holdings or transactions
+            if arr and isinstance(arr[0], dict) and ("symbol" in arr[0] or "ticker" in arr[0]):
+                return {"holdings": arr, "transactions": []}
+            return {"holdings": [], "transactions": arr}
+
+        return {"holdings": [], "transactions": []}
     except Exception as e:
         logger.error(f"CSV parse error: {e}")
         raise RuntimeError(f"CSV parsing failed: {str(e)}")
+

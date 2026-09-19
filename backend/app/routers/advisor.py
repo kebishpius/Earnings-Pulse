@@ -54,6 +54,14 @@ class ParseDataRequest(BaseModel):
     format: str = "csv"               # "csv" | "json"
 
 
+class ParsedHolding(BaseModel):
+    symbol: str
+    asset_name: str = ""
+    asset_type: str = "Equity"
+    current_value: float = 0.0
+    allocation_pct: float = 0.0
+
+
 class ParsedTransaction(BaseModel):
     date: str = ""
     description: str
@@ -62,7 +70,9 @@ class ParsedTransaction(BaseModel):
 
 
 class ParseDataResponse(BaseModel):
-    transactions: List[ParsedTransaction]
+    data_type: str = "transactions"   # "holdings" | "transactions" | "mixed"
+    holdings: List[ParsedHolding] = []
+    transactions: List[ParsedTransaction] = []
     count: int
     parse_method: str
 
@@ -116,66 +126,197 @@ async def ai_advisor(request: AdvisorRequest):
 @router.post("/upload-data/parse", response_model=ParseDataResponse)
 async def parse_uploaded_data(request: ParseDataRequest):
     """
-    Accepts raw CSV or JSON text from a bank statement or broker export
-    and uses Gemini to parse it into structured EarningsPulse transactions.
-    Falls back to basic client-side parsing if Gemini is unavailable.
+    Accepts raw CSV or JSON text from a stock broker (Schwab, Fidelity, Robinhood, Vanguard)
+    or bank statement and parses it into structured holdings and/or transactions.
+    Falls back to smart deterministic parsing if Gemini is unavailable.
     """
     if not request.raw_text.strip():
         raise HTTPException(status_code=400, detail="raw_text cannot be empty.")
 
     logger.info(f"/api/upload-data/parse: format={request.format}, chars={len(request.raw_text)}")
 
-    # Try Gemini AI parsing first
+    # 1. Try Gemini AI parsing first
     try:
         from app.services.gemini_service import parse_csv_with_gemini
         parsed = parse_csv_with_gemini(request.raw_text)
 
+        raw_holdings = parsed.get("holdings", []) if isinstance(parsed, dict) else []
+        raw_txs = parsed.get("transactions", []) if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
+
+        holdings = []
         transactions = []
-        for i, item in enumerate(parsed):
-            if isinstance(item, dict):
-                transactions.append(ParsedTransaction(
-                    date=str(item.get("date", "")),
-                    description=str(item.get("description", f"Transaction {i+1}")),
-                    amount=abs(float(item.get("amount", 0))),
-                    category=str(item.get("category", "Other"))
+
+        for h in raw_holdings:
+            if isinstance(h, dict) and h.get("symbol"):
+                val = abs(float(h.get("current_value", 0)))
+                holdings.append(ParsedHolding(
+                    symbol=str(h.get("symbol", "")).upper().strip(),
+                    asset_name=str(h.get("asset_name", h.get("symbol", ""))),
+                    asset_type=str(h.get("asset_type", "Equity")),
+                    current_value=val,
+                    allocation_pct=float(h.get("allocation_pct", 0.0))
                 ))
 
-        return ParseDataResponse(
-            transactions=transactions,
-            count=len(transactions),
-            parse_method="Gemini AI Parser"
-        )
+        for i, t in enumerate(raw_txs):
+            if isinstance(t, dict):
+                transactions.append(ParsedTransaction(
+                    date=str(t.get("date", "")),
+                    description=str(t.get("description", f"Transaction {i+1}")),
+                    amount=abs(float(t.get("amount", 0))),
+                    category=str(t.get("category", "Other"))
+                ))
+
+        # If holdings were parsed without allocation percentages, compute them
+        if holdings:
+            total_val = sum(h.current_value for h in holdings)
+            if total_val > 0:
+                for h in holdings:
+                    if h.allocation_pct <= 0:
+                        h.allocation_pct = round((h.current_value / total_val) * 100, 1)
+
+        if holdings and transactions:
+            data_type = "mixed"
+            total_count = len(holdings) + len(transactions)
+        elif holdings:
+            data_type = "holdings"
+            total_count = len(holdings)
+        else:
+            data_type = "transactions"
+            total_count = len(transactions)
+
+        if total_count > 0:
+            return ParseDataResponse(
+                data_type=data_type,
+                holdings=holdings,
+                transactions=transactions,
+                count=total_count,
+                parse_method="Gemini AI Parser"
+            )
 
     except Exception as e:
-        logger.warning(f"Gemini CSV parse failed, attempting basic parse: {e}")
+        logger.warning(f"Gemini CSV parse failed, attempting smart deterministic parse: {e}")
 
-    # Fallback: basic CSV parsing
+    # 2. Smart Deterministic Broker & Bank CSV Parsing Fallback
     try:
         import csv, io, re
-        transactions = []
-        reader = csv.DictReader(io.StringIO(request.raw_text))
-        for i, row in enumerate(reader):
-            # Try to find common CSV column patterns
-            desc = row.get("Description") or row.get("Merchant") or row.get("Name") or row.get("Payee") or f"Transaction {i+1}"
-            amount_str = row.get("Amount") or row.get("Debit") or row.get("Withdrawal") or "0"
-            amount_str = re.sub(r'[^\d\.-]', '', str(amount_str))
-            try:
-                amount = abs(float(amount_str))
-            except (ValueError, TypeError):
-                amount = 0.0
-            date = row.get("Date") or row.get("Transaction Date") or row.get("Posted Date") or ""
-            transactions.append(ParsedTransaction(
-                date=date,
-                description=str(desc),
-                amount=amount,
-                category="Other"
-            ))
 
-        return ParseDataResponse(
-            transactions=transactions,
-            count=len(transactions),
-            parse_method="Basic CSV Parser (Fallback)"
-        )
+        lines = [line for line in request.raw_text.strip().splitlines() if line.strip()]
+        # Skip potential broker metadata headers until table header row
+        header_idx = 0
+        for idx, line in enumerate(lines[:10]):
+            line_lower = line.lower()
+            if any(k in line_lower for k in ["symbol", "ticker", "description", "quantity", "shares", "amount", "date"]):
+                header_idx = idx
+                break
+
+        csv_content = "\n".join(lines[header_idx:])
+        reader = csv.DictReader(io.StringIO(csv_content))
+        
+        # Check fieldnames to determine if this is a Stock Holdings CSV or a Bank Ledger CSV
+        fieldnames = [f.strip() for f in (reader.fieldnames or [])]
+        fieldnames_lower = [f.lower() for f in fieldnames]
+
+        is_stock_holdings = any(k in fieldnames_lower for k in ["symbol", "ticker", "holding", "position", "shares", "quantity", "market value", "current value"])
+
+        holdings = []
+        transactions = []
+
+        if is_stock_holdings:
+            # Parse as stock positions (Schwab, Fidelity, Robinhood, Vanguard)
+            for i, row in enumerate(reader):
+                # Symbol lookup
+                sym = None
+                for col in ["Symbol", "Ticker", "Stock", "Asset", "symbol", "ticker"]:
+                    if col in row and row[col]:
+                        sym = str(row[col]).strip().upper()
+                        break
+                if not sym or sym.lower() in ["total", "account total", "cash", "--", ""]:
+                    # Check for cash balance line
+                    if sym and "cash" in sym.lower():
+                        sym = "USD"
+                    else:
+                        continue
+
+                # Asset Name / Description
+                desc = row.get("Description") or row.get("Name") or row.get("Security Description") or sym
+
+                # Market Value or compute from Quantity * Price
+                val_str = row.get("Current Value") or row.get("Market Value") or row.get("Value") or row.get("Total") or "0"
+                val_str = re.sub(r'[^\d\.-]', '', str(val_str))
+                try:
+                    val = abs(float(val_str))
+                except (ValueError, TypeError):
+                    val = 0.0
+
+                if val == 0.0:
+                    # Try quantity * price
+                    qty_str = re.sub(r'[^\d\.-]', '', str(row.get("Quantity") or row.get("Shares") or "0"))
+                    prc_str = re.sub(r'[^\d\.-]', '', str(row.get("Price") or row.get("Last Price") or row.get("Cost Per Share") or "0"))
+                    try:
+                        val = abs(float(qty_str) * float(prc_str))
+                    except (ValueError, TypeError):
+                        val = 0.0
+
+                # Determine asset type
+                sym_upper = sym.upper()
+                if sym_upper in ["USD", "CASH", "SPAXX", "FDRXX", "SWVXX"]:
+                    atype = "Cash"
+                elif sym_upper in ["BTC", "ETH", "SOL", "DOGE"]:
+                    atype = "Crypto"
+                elif any(sym_upper.endswith(sfx) for sfx in ["XX", "ETF"]) or sym_upper in ["SPY", "QQQ", "VOO", "VTI", "IWM"]:
+                    atype = "ETF"
+                else:
+                    atype = "Equity"
+
+                holdings.append(ParsedHolding(
+                    symbol=sym,
+                    asset_name=str(desc),
+                    asset_type=atype,
+                    current_value=val,
+                    allocation_pct=0.0
+                ))
+
+            # Compute allocation percentages
+            total_val = sum(h.current_value for h in holdings)
+            if total_val > 0:
+                for h in holdings:
+                    h.allocation_pct = round((h.current_value / total_val) * 100, 1)
+
+            return ParseDataResponse(
+                data_type="holdings",
+                holdings=holdings,
+                transactions=[],
+                count=len(holdings),
+                parse_method="Smart Broker CSV Parser (Fallback)"
+            )
+
+        else:
+            # Parse as bank / transaction ledger
+            for i, row in enumerate(reader):
+                desc = row.get("Description") or row.get("Merchant") or row.get("Name") or row.get("Payee") or f"Transaction {i+1}"
+                amount_str = row.get("Amount") or row.get("Debit") or row.get("Withdrawal") or "0"
+                amount_str = re.sub(r'[^\d\.-]', '', str(amount_str))
+                try:
+                    amount = abs(float(amount_str))
+                except (ValueError, TypeError):
+                    amount = 0.0
+                date = row.get("Date") or row.get("Transaction Date") or row.get("Posted Date") or ""
+                transactions.append(ParsedTransaction(
+                    date=date,
+                    description=str(desc),
+                    amount=amount,
+                    category="Other"
+                ))
+
+            return ParseDataResponse(
+                data_type="transactions",
+                holdings=[],
+                transactions=transactions,
+                count=len(transactions),
+                parse_method="Basic Bank CSV Parser (Fallback)"
+            )
+
     except Exception as e2:
-        logger.error(f"Basic CSV parse also failed: {e2}")
+        logger.error(f"Fallback CSV parse failed: {e2}")
         raise HTTPException(status_code=500, detail=f"Failed to parse uploaded data: {str(e2)}")
+
