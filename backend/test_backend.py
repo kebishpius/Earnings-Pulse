@@ -41,8 +41,8 @@ def run_tests():
             {"symbol": "USD", "asset_name": "Cash", "asset_type": "Cash", "allocation_pct": 48.0, "current_value": 48000.0}
         ],
         "transactions": [
-            {"date": "2024-08-01", "description": "Unused Gym Membership", "amount": 80.0, "category": "Fitness"},
-            {"date": "2024-08-05", "description": "Duplicate Streaming Sub", "amount": 15.99, "category": "Entertainment"}
+            {"date": "2026-08-01", "description": "Unused Gym Membership", "amount": 80.0, "category": "Fitness"},
+            {"date": "2026-08-05", "description": "Duplicate Streaming Sub", "amount": 15.99, "category": "Entertainment"}
         ]
     }
     r_audit = client.post("/api/audit-portfolio", json=audit_payload)

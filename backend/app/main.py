@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+# Ensure backend root is on sys.path when executed directly as a script
+backend_dir = str(Path(__file__).resolve().parent.parent)
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,10 +66,10 @@ def get_presets():
     """Provides sample data presets for hackathon demo testing."""
     return {
         "sample_tickers": [
-            {"name": "Apple Q3 Earnings", "query": "Apple Q3 2024 earnings report"},
-            {"name": "NVIDIA Q2 Earnings", "query": "NVIDIA Q2 FY2025 earnings release"},
-            {"name": "Microsoft Cloud & AI", "query": "Microsoft latest quarterly earnings cloud revenue"},
-            {"name": "Tesla Auto Margins", "query": "Tesla recent earnings report delivery numbers and robotaxi"}
+            {"name": "Apple Q3 Earnings", "query": "Apple Q3 2026 earnings report"},
+            {"name": "NVIDIA Q2 Earnings", "query": "NVIDIA Q2 FY2026 earnings release"},
+            {"name": "Microsoft Cloud & AI", "query": "Microsoft Q4 2026 earnings cloud revenue"},
+            {"name": "Tesla Auto Margins", "query": "Tesla recent quarterly earnings automotive margins robotaxi 2026"}
         ],
         "sample_news": [
             {
@@ -94,13 +102,20 @@ def get_presets():
                 {"symbol": "USD", "asset_name": "Cash Equivalents", "asset_type": "Cash", "allocation_pct": 3.0, "current_value": 3000.00}
             ],
             "transactions": [
-                {"date": "2024-08-01", "description": "AWS Cloud Reserved Instance", "amount": 145.00, "category": "Cloud & Infra"},
-                {"date": "2024-08-03", "description": "Midjourney AI Subscription", "amount": 60.00, "category": "AI Tools"},
-                {"date": "2024-08-05", "description": "Equinox Luxury Health Club", "amount": 295.00, "category": "Fitness"},
-                {"date": "2024-08-09", "description": "Duplicate Spotify Premium Plan", "amount": 16.99, "category": "Entertainment"},
-                {"date": "2024-08-14", "description": "Unused Bloomberg Professional Terminal Add-on", "amount": 420.00, "category": "Finance Sub"},
-                {"date": "2024-08-18", "description": "High Frequency Speculative Options Trade Fee", "amount": 650.00, "category": "Trading Outflow"},
-                {"date": "2024-08-22", "description": "ChatGPT Plus Team Account", "amount": 50.00, "category": "AI Tools"}
+                {"date": "2026-08-01", "description": "AWS Cloud Reserved Instance", "amount": 145.00, "category": "Cloud & Infra"},
+                {"date": "2026-08-03", "description": "Midjourney AI Subscription", "amount": 60.00, "category": "AI Tools"},
+                {"date": "2026-08-05", "description": "Equinox Luxury Health Club", "amount": 295.00, "category": "Fitness"},
+                {"date": "2026-08-09", "description": "Duplicate Spotify Premium Plan", "amount": 16.99, "category": "Entertainment"},
+                {"date": "2026-08-14", "description": "Unused Bloomberg Professional Terminal Add-on", "amount": 420.00, "category": "Finance Sub"},
+                {"date": "2026-08-18", "description": "High Frequency Speculative Options Trade Fee", "amount": 650.00, "category": "Trading Outflow"},
+                {"date": "2026-08-22", "description": "ChatGPT Plus Team Account", "amount": 50.00, "category": "AI Tools"}
             ]
         }
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    from app.config import HOST, PORT
+    uvicorn.run("app.main:app", host=HOST, port=PORT, reload=True)
+

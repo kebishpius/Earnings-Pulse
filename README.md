@@ -151,7 +151,7 @@ Fetches live earnings filing text using Gemini Google Search grounding, then ana
 - **Request Body**:
   ```json
   {
-    "query": "Apple Q3 2024 earnings report revenue iPhone services",
+    "query": "Apple Q3 2026 earnings report revenue iPhone services",
     "ticker": "AAPL"
   }
   ```
@@ -160,23 +160,23 @@ Fetches live earnings filing text using Gemini Google Search grounding, then ana
   {
     "company_name": "Apple Inc.",
     "ticker": "AAPL",
-    "quarter": "Q3 2024",
+    "quarter": "Q3 2026",
     "executive_sentiment": "Bullish",
-    "sentiment_confidence": 0.92,
+    "sentiment_confidence": 0.94,
     "executive_summary": "Strong operational outperformance driven by record Services revenue...",
     "metrics": [
       {
         "metric": "Revenue",
-        "value": "$85.78 Billion",
-        "consensus": "$84.53 Billion",
+        "value": "$94.80 Billion",
+        "consensus": "$93.10 Billion",
         "beat_status": "Beat",
-        "notes": "+5% YoY growth"
+        "notes": "+7.2% YoY growth"
       }
     ],
-    "hidden_risks": ["Greater China sales contraction (-6.5%)", "EU Digital Markets Act scrutiny"],
-    "strategic_catalysts": ["Apple Intelligence device refresh cycle", "Accelerating Services margin expansion"],
+    "hidden_risks": ["Greater China competitive pricing pressure", "EU Digital Markets Act compliance"],
+    "strategic_catalysts": ["Apple Intelligence multi-year device refresh cycle", "Accelerating Services margin expansion"],
     "source_citations": [
-      { "title": "Apple Q3 2024 Earnings Press Release", "uri": "https://www.apple.com" }
+      { "title": "Apple Q3 2026 Earnings Press Release", "uri": "https://www.apple.com" }
     ]
   }
   ```
@@ -212,7 +212,7 @@ Scans holdings and transaction ledgers for concentration and recurring spending 
       { "symbol": "NVDA", "asset_name": "NVIDIA", "asset_type": "Equity", "allocation_pct": 48.5, "current_value": 48500 }
     ],
     "transactions": [
-      { "date": "2024-08-01", "description": "Duplicate Spotify Subscription", "amount": 16.99, "category": "Entertainment" }
+      { "date": "2026-08-01", "description": "Duplicate Spotify Subscription", "amount": 16.99, "category": "Entertainment" }
     ]
   }
   ```

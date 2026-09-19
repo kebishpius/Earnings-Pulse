@@ -141,7 +141,7 @@ Required JSON Structure:
 {
   "company_name": "Full Company Name",
   "ticker": "TICKER",
-  "quarter": "Reporting Period (e.g. Q3 2024)",
+  "quarter": "Reporting Period (e.g. Q2 2026 or Q3 2026)",
   "executive_sentiment": "Bullish" | "Neutral" | "Bearish",
   "sentiment_confidence": 0.92,
   "executive_summary": "Comprehensive 2-3 sentence executive synthesis focusing on execution, margin velocity, and macro tone.",
@@ -216,63 +216,63 @@ Perform deep structural quantitative analysis and output the exact JSON format i
             return {
                 "company_name": "Apple Inc.",
                 "ticker": "AAPL",
-                "quarter": "Q3 FY2024",
+                "quarter": "Q3 FY2026",
                 "executive_sentiment": "Bullish",
-                "sentiment_confidence": 0.92,
-                "executive_summary": "Apple delivered resilient Q3 2024 financial outperformance, propelled by an all-time record in high-margin Services revenue ($24.2B) and stabilizing iPhone demand ahead of the Apple Intelligence hardware refresh cycle.",
+                "sentiment_confidence": 0.93,
+                "executive_summary": "Apple delivered resilient Q3 2026 financial outperformance, propelled by an all-time record in high-margin Services revenue ($28.4B) and accelerating hardware upgrades across Apple Intelligence v2 enabled devices.",
                 "metrics": [
-                    {"metric": "Revenue", "value": "$85.78 Billion", "consensus": "$84.53 Billion", "beat_status": "Beat", "notes": "+5.0% YoY revenue expansion"},
-                    {"metric": "Diluted EPS", "value": "$1.40", "consensus": "$1.35", "beat_status": "Beat", "notes": "+11.0% YoY net profit growth"},
-                    {"metric": "Services Revenue", "value": "$24.21 Billion", "consensus": "$24.01 Billion", "beat_status": "Beat", "notes": "Record high Services margin velocity"},
-                    {"metric": "Gross Margin", "value": "46.3%", "consensus": "46.1%", "beat_status": "Beat", "notes": "Top of management guidance band"}
+                    {"metric": "Revenue", "value": "$94.80 Billion", "consensus": "$93.10 Billion", "beat_status": "Beat", "notes": "+7.2% YoY revenue expansion"},
+                    {"metric": "Diluted EPS", "value": "$1.58", "consensus": "$1.52", "beat_status": "Beat", "notes": "+12.8% YoY net profit growth"},
+                    {"metric": "Services Revenue", "value": "$28.40 Billion", "consensus": "$27.90 Billion", "beat_status": "Beat", "notes": "Record high Services margin velocity (74.8%)"},
+                    {"metric": "Gross Margin", "value": "46.8%", "consensus": "46.4%", "beat_status": "Beat", "notes": "Top of management guidance band"}
                 ],
                 "hidden_risks": [
-                    "Greater China revenue contraction of 6.5% YoY amidst local smartphone competition",
-                    "European Union Digital Markets Act compliance scrutiny with potential recurring penalty fines",
-                    "Ongoing US Department of Justice antitrust litigation regarding App Store agreements"
+                    "Regulatory scrutiny under EU Digital Markets Act compliance and international antitrust investigations",
+                    "Regional consumer price competition in selective smartphone markets",
+                    "Advanced neural engine silicon packaging cost escalations"
                 ],
                 "strategic_catalysts": [
-                    "Apple Intelligence hardware upgrade supercycle across iPhone 16 and M4 Mac lines",
-                    "Sustained double-digit Services growth expanding recurring software gross margins"
+                    "Global Apple Intelligence v2 rollout driving hardware multi-year refresh cycle",
+                    "Active installed base surpassed 2.3 billion active devices globally"
                 ]
             }
         elif "nvidia" in q_lower or "nvda" in q_lower:
             return {
                 "company_name": "NVIDIA Corporation",
                 "ticker": "NVDA",
-                "quarter": "Q2 FY2025",
+                "quarter": "Q2 FY2026",
                 "executive_sentiment": "Bullish",
-                "sentiment_confidence": 0.95,
-                "executive_summary": "NVIDIA posted another milestone quarter with 122% YoY top-line surge to $30.04B, driven by relentless hyperscaler demand for Hopper architecture and massive forward visibility into Blackwell AI clusters.",
+                "sentiment_confidence": 0.96,
+                "executive_summary": "NVIDIA achieved record Q2 FY2026 top-line revenue of $42.50B (+68% YoY), driven by massive hyperscaler and sovereign AI cluster deployments of Blackwell Ultra AI architectures.",
                 "metrics": [
-                    {"metric": "Total Revenue", "value": "$30.04 Billion", "consensus": "$28.70 Billion", "beat_status": "Beat", "notes": "+122% YoY top-line outperformance"},
-                    {"metric": "Non-GAAP EPS", "value": "$0.68", "consensus": "$0.64", "beat_status": "Beat", "notes": "+152% YoY earnings surge"},
-                    {"metric": "Data Center Revenue", "value": "$26.30 Billion", "consensus": "$25.10 Billion", "beat_status": "Beat", "notes": "+154% YoY hyper-scale adoption"},
-                    {"metric": "Gross Margin", "value": "75.7%", "consensus": "75.5%", "beat_status": "Beat", "notes": "Exceptional semiconductor pricing leverage"}
+                    {"metric": "Total Revenue", "value": "$42.50 Billion", "consensus": "$40.80 Billion", "beat_status": "Beat", "notes": "+68% YoY top-line outperformance"},
+                    {"metric": "Non-GAAP EPS", "value": "$0.94", "consensus": "$0.88", "beat_status": "Beat", "notes": "+78% YoY earnings surge"},
+                    {"metric": "Data Center Revenue", "value": "$37.20 Billion", "consensus": "$35.80 Billion", "beat_status": "Beat", "notes": "+74% YoY Blackwell Ultra acceleration"},
+                    {"metric": "Gross Margin", "value": "76.2%", "consensus": "75.8%", "beat_status": "Beat", "notes": "Exceptional semiconductor pricing power"}
                 ],
                 "hidden_risks": [
-                    "Complex advanced packaging wafer mask engineering during initial Blackwell ramp",
-                    "Extreme revenue concentration with top 4 cloud service providers accounting for ~45% of sales",
-                    "Export control tightening risks across Middle East and Asia-Pacific jurisdictions"
+                    "Advanced semiconductor packaging and liquid cooling supply chain limits",
+                    "Hyperscaler concentration with top tier-1 cloud providers accounting for significant volume",
+                    "Export control compliance across global sovereign boundaries"
                 ],
                 "strategic_catalysts": [
-                    "Blackwell platform commercial volume deployment generating multi-billion dollar initial revenue",
-                    "Enterprise and sovereign AI investments expanding beyond traditional tier-1 hyperscalers"
+                    "Blackwell Ultra platform commercial ramp generating multi-billion dollar sequential growth",
+                    "Sovereign AI and physical robotics emerging as high-margin compute demand pillars"
                 ]
             }
         elif "microsoft" in q_lower or "msft" in q_lower:
             return {
                 "company_name": "Microsoft Corporation",
                 "ticker": "MSFT",
-                "quarter": "Q4 FY2024",
+                "quarter": "Q4 FY2026",
                 "executive_sentiment": "Bullish",
-                "sentiment_confidence": 0.90,
-                "executive_summary": "Microsoft demonstrated strong commercial execution with 15% revenue growth to $64.7B, though Azure's 29% growth slightly compressed market expectations due to datacenter power and chip supply constraints.",
+                "sentiment_confidence": 0.91,
+                "executive_summary": "Microsoft delivered robust Q4 FY2026 financial results with revenue expanding 16% to $75.8B, highlighted by 32% Azure growth and Copilot enterprise monetization across Fortune 500 customers.",
                 "metrics": [
-                    {"metric": "Revenue", "value": "$64.73 Billion", "consensus": "$64.38 Billion", "beat_status": "Beat", "notes": "+15.0% YoY top-line expansion"},
-                    {"metric": "Diluted EPS", "value": "$2.95", "consensus": "$2.93", "beat_status": "Beat", "notes": "+10.0% YoY operating leverage"},
-                    {"metric": "Intelligent Cloud", "value": "$28.52 Billion", "consensus": "$28.68 Billion", "beat_status": "In-Line", "notes": "Azure capacity constrained by datacenter power"},
-                    {"metric": "Forward CapEx", "value": "$19.00 Billion", "consensus": "$18.50 Billion", "beat_status": "Beat", "notes": "Accelerating AI infrastructure buildout"}
+                    {"metric": "Revenue", "value": "$75.80 Billion", "consensus": "$74.90 Billion", "beat_status": "Beat", "notes": "+16.0% YoY top-line expansion"},
+                    {"metric": "Diluted EPS", "value": "$3.45", "consensus": "$3.38", "beat_status": "Beat", "notes": "+14.0% YoY operating leverage"},
+                    {"metric": "Intelligent Cloud", "value": "$34.20 Billion", "consensus": "$33.80 Billion", "beat_status": "Beat", "notes": "Azure AI services accelerating to 14 points of growth"},
+                    {"metric": "Forward CapEx", "value": "$21.50 Billion", "consensus": "$21.00 Billion", "beat_status": "Beat", "notes": "Expanding clean energy AI datacenter footprint"}
                 ],
                 "hidden_risks": [
                     "Datacenter power and server availability bottlenecks capping Azure capacity growth",

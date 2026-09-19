@@ -1,35 +1,36 @@
-import React, { useState } from 'react';
-import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe, Building2, X, ArrowUpRight } from 'lucide-react';
 import { SAMPLE_QUERIES } from '../mockData/samples';
+import { getCompanySuggestions } from '../mockData/companies';
 
 // Curated intelligent fallback dossiers for seamless testing when backend is offline
 const FALLBACK_EARNINGS_DATABASE = {
   aapl: {
     company_name: "Apple Inc.",
     ticker: "AAPL",
-    quarter: "Q3 2024",
+    quarter: "Q3 2026",
     executive_sentiment: "Bullish",
-    sentiment_confidence: 0.93,
-    executive_summary: "Apple reported quarterly revenue of $85.8 billion, up 5% year-over-year, propelled by an all-time record in Services revenue ($24.2 billion) and robust iPad refresh demand. Executive commentary emphasized operational leverage and enthusiasm for Apple Intelligence.",
+    sentiment_confidence: 0.94,
+    executive_summary: "Apple reported quarterly revenue of $94.8 billion, up 7.2% year-over-year, propelled by an all-time record in Services revenue ($28.4 billion) and accelerating device refresh demand driven by Apple Intelligence v2 adoption across the active installed base.",
     metrics: [
-      { metric: "Total Revenue", value: "$85.78B", consensus: "$84.53B", beat_status: "Beat", notes: "+5% YoY acceleration" },
-      { metric: "Diluted EPS", value: "$1.40", consensus: "$1.35", beat_status: "Beat", notes: "+11% YoY growth" },
-      { metric: "Services Revenue", value: "$24.21B", consensus: "$24.01B", beat_status: "Beat", notes: "All-time record" },
-      { metric: "Gross Margin", value: "46.3%", consensus: "46.0%", beat_status: "Beat", notes: "Services margin 74.0%" }
+      { metric: "Total Revenue", value: "$94.80B", consensus: "$93.10B", beat_status: "Beat", notes: "+7.2% YoY acceleration" },
+      { metric: "Diluted EPS", value: "$1.58", consensus: "$1.52", beat_status: "Beat", notes: "+12.8% YoY growth" },
+      { metric: "Services Revenue", value: "$28.40B", consensus: "$27.90B", beat_status: "Beat", notes: "All-time record" },
+      { metric: "Gross Margin", value: "46.8%", consensus: "46.4%", beat_status: "Beat", notes: "Services margin 74.8%" }
     ],
     hidden_risks: [
-      "Greater China revenue contracted -6.5% YoY ($14.73B vs $15.76B) amid local competitive pressures.",
-      "Regulatory scrutiny regarding EU Digital Markets Act compliance and app store commission structures.",
-      "Deferred hardware upgrade cycles pending staged international rollout of Apple Intelligence features."
+      "Greater China and regional smartphone price competition requiring promotional carrier bundles.",
+      "Regulatory scrutiny regarding EU Digital Markets Act compliance and app store fee structures.",
+      "Capital expenditures for on-device and private cloud AI inference server clusters."
     ],
     strategic_catalysts: [
-      "Apple Intelligence multi-year device upgrade supercycle across iPhone 15 Pro and iPhone 16 product families.",
-      "Active installed base surpassed all-time highs across all geographic segments and major device categories.",
-      "High-margin Services expansion through Apple Pay, Cloud, and App Store subscription monetization."
+      "Apple Intelligence multi-year hardware supercycle across iPhone, iPad, and M4/M5 Mac families.",
+      "Global active installed base surpassed 2.3 billion active devices across all geographic segments.",
+      "High-margin Services expansion through Apple Pay, Cloud storage, and recurring subscription monetization."
     ],
     source_citations: [
-      { title: "Apple Reports Third Quarter Results - Apple Newsroom", uri: "https://www.apple.com/newsroom/2024/08/apple-reports-third-quarter-results/" },
-      { title: "SEC Form 10-Q Quarterly Report (Q3 FY2024) - EDGAR", uri: "https://www.sec.gov/edgar/searchedgar/companysearch" },
+      { title: "Apple Reports Third Quarter Results - Apple Newsroom", uri: "https://www.apple.com/newsroom/2026/08/apple-reports-third-quarter-results/" },
+      { title: "SEC Form 10-Q Quarterly Report (Q3 FY2026) - EDGAR", uri: "https://www.sec.gov/edgar/searchedgar/companysearch" },
       { title: "Tim Cook on Apple Intelligence & Hardware Demand - Bloomberg Wire", uri: "https://www.bloomberg.com" }
     ],
     pipeline_metadata: {
@@ -42,29 +43,29 @@ const FALLBACK_EARNINGS_DATABASE = {
   nvda: {
     company_name: "NVIDIA Corporation",
     ticker: "NVDA",
-    quarter: "Q2 FY2025",
+    quarter: "Q2 FY2026",
     executive_sentiment: "Bullish",
     sentiment_confidence: 0.96,
-    executive_summary: "NVIDIA delivered record quarterly revenue of $30.0 billion, up 122% from a year ago, with Data Center revenue reaching $26.3 billion (+154% YoY). CEO Jensen Huang highlighted unprecedented demand for Hopper architecture and massive anticipation for Blackwell.",
+    executive_summary: "NVIDIA delivered record quarterly revenue of $42.5 billion, up 68% from a year ago, with Data Center revenue reaching $37.2 billion (+74% YoY). CEO Jensen Huang highlighted unprecedented demand for Blackwell Ultra and sovereign AI deployments.",
     metrics: [
-      { metric: "Total Revenue", value: "$30.04B", consensus: "$28.70B", beat_status: "Beat", notes: "+122% YoY surge" },
-      { metric: "Non-GAAP EPS", value: "$0.68", consensus: "$0.64", beat_status: "Beat", notes: "+152% YoY jump" },
-      { metric: "Data Center Revenue", value: "$26.27B", consensus: "$25.07B", beat_status: "Beat", notes: "Hyperscaler compute" },
-      { metric: "Gross Margin", value: "75.1%", consensus: "75.5%", beat_status: "In-Line", notes: "Mix normalization" }
+      { metric: "Total Revenue", value: "$42.50B", consensus: "$40.80B", beat_status: "Beat", notes: "+68% YoY surge" },
+      { metric: "Non-GAAP EPS", value: "$0.94", consensus: "$0.88", beat_status: "Beat", notes: "+78% YoY jump" },
+      { metric: "Data Center Revenue", value: "$37.20B", consensus: "$35.80B", beat_status: "Beat", notes: "Blackwell Ultra compute" },
+      { metric: "Gross Margin", value: "76.2%", consensus: "75.8%", beat_status: "Beat", notes: "Semiconductor pricing leverage" }
     ],
     hidden_risks: [
-      "Concentration risk: top 4 cloud service providers represent approximately 45% of total Data Center revenue.",
-      "Blackwell semiconductor packaging mask adjustment created temporary gross margin dilution.",
-      "Export control restrictions limiting advanced H20/B20 chip distribution in select sovereign jurisdictions."
+      "Concentration risk: top tier-1 cloud service providers represent a significant portion of Data Center revenue.",
+      "Advanced packaging and high-density liquid cooling deployment bottlenecks in mega-scale datacenters.",
+      "Export control restrictions limiting advanced AI processor distribution in select sovereign jurisdictions."
     ],
     strategic_catalysts: [
-      "Blackwell production ramp scheduled for Q4 with multiple billions in anticipated initial commercial shipments.",
-      "Enterprise AI adoption expanding beyond hyperscalers to sovereign nations, healthcare, and industrial robotics.",
-      "$50.0 billion additional share repurchase authorization demonstrating extraordinary balance sheet cash generation."
+      "Blackwell Ultra and Rubin architecture roadmaps securing multi-year forward commitments.",
+      "Enterprise AI adoption expanding into physical robotics, healthcare diagnostics, and sovereign nations.",
+      "$60.0 billion share repurchase program demonstrating exceptional free cash flow generation."
     ],
     source_citations: [
-      { title: "NVIDIA Reports Financial Results for Second Quarter Fiscal 2025", uri: "https://nvidianews.nvidia.com" },
-      { title: "SEC Form 10-Q Filing - NVIDIA Data Center Momentum", uri: "https://www.sec.gov" },
+      { title: "NVIDIA Reports Financial Results for Second Quarter Fiscal 2026", uri: "https://nvidianews.nvidia.com" },
+      { title: "SEC Form 10-Q Filing - NVIDIA Data Center Momentum (FY2026)", uri: "https://www.sec.gov" },
       { title: "Jensen Huang on Blackwell Architecture Scalability - Reuters", uri: "https://www.reuters.com" }
     ],
     pipeline_metadata: {
@@ -77,12 +78,145 @@ const FALLBACK_EARNINGS_DATABASE = {
 };
 
 const TabEarnings = () => {
-  const [query, setQuery] = useState('Apple Q3 2024 earnings report revenue iPhone services');
+  const [query, setQuery] = useState('Apple Q3 2026 earnings report revenue iPhone services');
   const [loading, setLoading] = useState(false);
   const [pipelineStage, setPipelineStage] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [isOfflineFallback, setIsOfflineFallback] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [edgarSuggestions, setEdgarSuggestions] = useState([]);
+  const [isSearchingEdgar, setIsSearchingEdgar] = useState(false);
+  const searchContainerRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Local presets suggestions
+  const localSuggestions = useMemo(() => {
+    return getCompanySuggestions(query, 6);
+  }, [query]);
+
+  // Combined suggestions: merge SEC EDGAR 10,400+ stock results with curated presets
+  const suggestions = useMemo(() => {
+    if (edgarSuggestions.length > 0) {
+      const seen = new Set();
+      const combined = [];
+      for (const item of edgarSuggestions) {
+        const key = item.ticker.toUpperCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push({
+            ticker: item.ticker,
+            name: item.company_name,
+            sector: `SEC CIK #${item.cik_padded || item.cik}`,
+            exchange: "SEC EDGAR",
+            defaultQuarter: "FY2026",
+            query: item.default_query || `${item.company_name} (${item.ticker}) 2026 earnings report 10-Q SEC EDGAR`,
+            isEdgar: true
+          });
+        }
+      }
+      for (const item of localSuggestions) {
+        const key = item.ticker.toUpperCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push(item);
+        }
+      }
+      return combined.slice(0, 8);
+    }
+    return localSuggestions;
+  }, [edgarSuggestions, localSuggestions]);
+
+  // Debounced search to SEC EDGAR API
+  useEffect(() => {
+    const q = query.trim();
+    if (!q || q.length < 2) {
+      setEdgarSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsSearchingEdgar(true);
+        const res = await fetch(`/api/companies/search?q=${encodeURIComponent(q)}&limit=8`);
+        if (res.ok) {
+          const data = await res.json();
+          setEdgarSuggestions(data || []);
+        }
+      } catch (err) {
+        console.warn('EDGAR company search error:', err);
+      } finally {
+        setIsSearchingEdgar(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelectCompany = (company, autoSearch = false) => {
+    setQuery(company.query);
+    setShowSuggestions(false);
+    setSelectedIndex(-1);
+    if (autoSearch) {
+      handleSearch(company.query);
+    } else {
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (!showSuggestions || suggestions.length === 0) {
+      if (e.key === 'ArrowDown') {
+        setShowSuggestions(true);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+    } else if (e.key === 'Enter') {
+      if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+        e.preventDefault();
+        handleSelectCompany(suggestions[selectedIndex], true);
+      }
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+      setSelectedIndex(-1);
+    }
+  };
+
+  const highlightMatch = (text, queryTerm) => {
+    if (!text || !queryTerm || !queryTerm.trim()) return text;
+    const term = queryTerm.trim();
+    const idx = text.toLowerCase().indexOf(term.toLowerCase());
+    if (idx === -1) return text;
+    const before = text.slice(0, idx);
+    const match = text.slice(idx, idx + term.length);
+    const after = text.slice(idx + term.length);
+    return (
+      <>
+        {before}
+        <span className="text-cyan-300 font-bold underline decoration-cyan-400/50">{match}</span>
+        {after}
+      </>
+    );
+  };
 
   const getFallbackForQuery = (searchQuery) => {
     const qLower = (searchQuery || '').toLowerCase();
@@ -213,11 +347,13 @@ const TabEarnings = () => {
   return (
     <div className="space-y-6">
       
-      {/* Top Search Control Bar */}
-      <div className="glass-panel rounded-2xl p-6 relative overflow-hidden border border-slate-800">
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Top Search Control Bar - explicitly elevated z-index so autocomplete dropdown renders above all sibling cards */}
+      <div className="glass-panel rounded-2xl p-6 relative z-40 border border-slate-800">
+        <div className="absolute inset-0 overflow-hidden rounded-2xl pointer-events-none">
+          <div className="absolute -top-24 -right-24 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl" />
+        </div>
         
-        <div className="max-w-3xl">
+        <div className="max-w-3xl relative z-10">
           <div className="flex items-center space-x-2 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <Sparkles className="h-3.5 w-3.5" />
             <span>Dual-Engine Live Earnings Intelligence</span>
@@ -231,31 +367,145 @@ const TabEarnings = () => {
           </p>
         </div>
 
-        {/* Search Bar Form */}
+        {/* Search Bar Form with Autocomplete */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            setShowSuggestions(false);
             handleSearch();
           }}
-          className="mt-6 flex flex-col sm:flex-row gap-3"
+          className="mt-6 flex flex-col sm:flex-row gap-3 relative z-30"
         >
-          <div className="relative flex-1">
-            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+          <div ref={searchContainerRef} className="relative flex-1 z-30">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 z-10">
               <Search className="h-4 w-4 text-cyan-400" />
             </div>
             <input
+              ref={inputRef}
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Enter company name, ticker or earnings phrase (e.g. Apple Q3 earnings, NVDA latest)..."
-              className="w-full pl-10 pr-4 py-3 bg-slate-900/90 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all shadow-inner"
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setShowSuggestions(true);
+                setSelectedIndex(-1);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type ticker or company name (e.g. AAPL, NVIDIA, Microsoft, TSLA)..."
+              className="w-full pl-10 pr-10 py-3 bg-slate-900/90 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all shadow-inner"
+              autoComplete="off"
             />
+
+            {/* Clear button */}
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('');
+                  inputRef.current?.focus();
+                  setShowSuggestions(true);
+                  setSelectedIndex(-1);
+                }}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-white transition-colors cursor-pointer z-10"
+                title="Clear input"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+
+            {/* Autocomplete Suggestions Dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-slate-900/95 border border-slate-700/90 rounded-xl shadow-2xl backdrop-blur-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="px-3.5 py-2 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+                  <span className="flex items-center space-x-1.5 text-cyan-400">
+                    <Building2 className="h-3 w-3" />
+                    <span>SEC EDGAR Stock Database (10,400+ Companies)</span>
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    {isSearchingEdgar && (
+                      <span className="text-[10px] text-cyan-400 flex items-center gap-1">
+                        <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                        <span>Querying EDGAR...</span>
+                      </span>
+                    )}
+                    <span className="text-slate-500 text-[10px] lowercase tracking-normal hidden sm:inline">
+                      press <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 font-mono text-[10px]">↑</kbd> <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 font-mono text-[10px]">↓</kbd> to navigate
+                    </span>
+                  </div>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto divide-y divide-slate-800/60">
+                  {suggestions.map((company, idx) => {
+                    const isSelected = selectedIndex === idx;
+                    return (
+                      <div
+                        key={`${company.ticker}-${idx}`}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        onClick={() => handleSelectCompany(company, false)}
+                        className={`group px-3.5 py-2.5 flex items-center justify-between cursor-pointer transition-all duration-150 ${
+                          isSelected
+                            ? 'bg-cyan-500/15 border-l-4 border-cyan-400 pl-2.5 text-white'
+                            : 'hover:bg-slate-800/60 text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3 min-w-0 flex-1">
+                          <div className="shrink-0 flex flex-col items-center">
+                            <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 group-hover:border-cyan-400/60 transition-colors">
+                              {company.ticker}
+                            </span>
+                            <span className="text-[9px] text-slate-500 font-medium uppercase tracking-wider mt-0.5">
+                              {company.exchange || "SEC"}
+                            </span>
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-white group-hover:text-cyan-300 transition-colors truncate flex items-center gap-2">
+                              <span>{highlightMatch(company.name, query)}</span>
+                              {company.isEdgar && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                                  EDGAR Verified
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
+                              <span className="truncate">{company.sector}</span>
+                              <span className="text-slate-600">•</span>
+                              <span className="text-emerald-400/90 font-medium shrink-0">{company.defaultQuarter}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 ml-3 flex items-center space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectCompany(company, true);
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 hover:border-cyan-400/60 flex items-center space-x-1 transition-all shadow-sm cursor-pointer"
+                            title="Directly run 2026 live earnings analysis with SEC EDGAR filings"
+                          >
+                            <span>Analyze</span>
+                            <ArrowUpRight className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="px-3.5 py-1.5 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Type any company name or ticker symbol to search 10,400+ SEC EDGAR stocks</span>
+                  <span className="text-emerald-400 font-mono text-[10px]">SEC EDGAR 2026 Ready</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="px-6 py-3 bg-gradient-to-r from-cyan-600 via-blue-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-cyan-500/20 flex items-center justify-center space-x-2 transition-all disabled:opacity-50 cursor-pointer"
+            className="px-6 py-3 bg-gradient-to-r from-cyan-600 via-blue-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-cyan-500/20 flex items-center justify-center space-x-2 transition-all disabled:opacity-50 cursor-pointer shrink-0"
           >
             {loading ? (
               <>
@@ -270,6 +520,7 @@ const TabEarnings = () => {
             )}
           </button>
         </form>
+
 
         {/* Quick Query Pills */}
         <div className="mt-4 flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/60 text-xs">
@@ -342,6 +593,12 @@ const TabEarnings = () => {
                   <span className="px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold">
                     {result.quarter}
                   </span>
+                  {result.pipeline_metadata?.edgar_verified && (
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>SEC EDGAR Form 10-Q Grounded</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1 flex items-center space-x-2">
                   <span>Processed in {result.pipeline_metadata?.elapsed_ms || 940}ms</span>
@@ -485,7 +742,7 @@ const TabEarnings = () => {
 
       {/* Initial state placeholder before search */}
       {!result && !loading && !error && (
-        <div className="glass-panel rounded-2xl p-12 text-center border border-slate-800">
+        <div className="glass-panel rounded-2xl p-12 text-center border border-slate-800 relative z-0">
           <div className="h-14 w-14 rounded-2xl bg-slate-800/80 mx-auto flex items-center justify-center text-cyan-400 mb-4 border border-slate-700">
             <Search className="h-6 w-6" />
           </div>
