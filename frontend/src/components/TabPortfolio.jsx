@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert, Trash2, RotateCcw, Sparkles } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert, Trash2, RotateCcw, Sparkles, Upload, FileText, X, Database, ChevronDown, ChevronUp } from 'lucide-react';
 import { INITIAL_PORTFOLIO } from '../mockData/samples';
+import { useAppAuth } from '../auth/AuthContext';
 
 // Client-side quantitative risk auditor if backend is offline/unreachable
 const generateClientSideAudit = (holdings, transactions) => {
@@ -75,13 +76,24 @@ const generateClientSideAudit = (holdings, transactions) => {
 };
 
 const TabPortfolio = () => {
-  const [holdings, setHoldings] = useState(INITIAL_PORTFOLIO.holdings);
-  const [transactions, setTransactions] = useState(INITIAL_PORTFOLIO.transactions);
+  const { uploadedPortfolio, setUploadedPortfolio, hasPersonalData } = useAppAuth();
+  const [holdings, setHoldings] = useState(() => uploadedPortfolio?.holdings || INITIAL_PORTFOLIO.holdings);
+  const [transactions, setTransactions] = useState(() => uploadedPortfolio?.transactions || INITIAL_PORTFOLIO.transactions);
   const [auditing, setAuditing] = useState(false);
-  const [auditResult, setAuditResult] = useState(null);
+  const [auditResult, setAuditResult] = useState(uploadedPortfolio?.last_audit || null);
   const [error, setError] = useState(null);
   const [isLedgerModified, setIsLedgerModified] = useState(false);
   const [isClientSideAudit, setIsClientSideAudit] = useState(false);
+  const [usingPersonalData, setUsingPersonalData] = useState(hasPersonalData);
+
+  // Import panel state
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState(null);
+  const [importSuccess, setImportSuccess] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
+  const [pasteText, setPasteText] = useState('');
 
   // Quick transaction add state
   const [newDesc, setNewDesc] = useState('');
@@ -119,6 +131,8 @@ const TabPortfolio = () => {
     setIsLedgerModified(false);
     setIsClientSideAudit(false);
     setError(null);
+    setUsingPersonalData(false);
+    setUploadedPortfolio(null);
   };
 
   const handleRunAudit = async () => {
@@ -143,6 +157,15 @@ const TabPortfolio = () => {
       const data = await res.json();
       setAuditResult(data);
       setIsLedgerModified(false);
+      // Persist audit result to uploadedPortfolio so AI Advisor can use it
+      setUploadedPortfolio({
+        holdings,
+        transactions,
+        last_audit: {
+          overall_risk_score: data.overall_risk_score,
+          risk_level: data.risk_level
+        }
+      });
     } catch (err) {
       console.warn('Backend audit API unavailable, executing client-side Nemotron simulation:', err);
       // Seamless client-side quantitative audit fallback
@@ -150,6 +173,15 @@ const TabPortfolio = () => {
       setAuditResult(simulatedResult);
       setIsLedgerModified(false);
       setIsClientSideAudit(true);
+      // Still persist to uploadedPortfolio
+      setUploadedPortfolio({
+        holdings,
+        transactions,
+        last_audit: {
+          overall_risk_score: simulatedResult.overall_risk_score,
+          risk_level: simulatedResult.risk_level
+        }
+      });
     } finally {
       setAuditing(false);
     }
@@ -161,10 +193,180 @@ const TabPortfolio = () => {
     return 'text-emerald-400 border-emerald-500/50 bg-emerald-950/20';
   };
 
+  // ── Import handlers ──────────────────────────────────────────────────────────
+  const applyImportedTransactions = (parsedTxs) => {
+    const newTxs = parsedTxs.map((t, i) => ({
+      id: `imported-${Date.now()}-${i}`,
+      date: t.date || new Date().toISOString().split('T')[0],
+      description: t.description,
+      amount: parseFloat(t.amount) || 0,
+      category: t.category || 'Other'
+    })).filter(t => t.amount > 0);
+
+    setTransactions(newTxs);
+    setIsLedgerModified(true);
+    setUsingPersonalData(true);
+    setAuditResult(null);
+    // Persist to Auth0-scoped localStorage
+    setUploadedPortfolio({
+      holdings,
+      transactions: newTxs,
+      last_audit: null
+    });
+    setImportSuccess(`✓ Successfully imported ${newTxs.length} transactions. Run the Nemotron audit to analyze your real data!`);
+    setPasteText('');
+  };
+
+  const handleImportText = async (text) => {
+    if (!text.trim()) return;
+    setImportLoading(true);
+    setImportError(null);
+    setImportSuccess(null);
+    try {
+      const res = await fetch('/api/upload-data/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_text: text, format: 'csv' })
+      });
+      if (!res.ok) throw new Error(`Parse API error ${res.status}`);
+      const data = await res.json();
+      if (!data.transactions || data.transactions.length === 0) {
+        throw new Error('No transactions found in the uploaded data. Check the format.');
+      }
+      applyImportedTransactions(data.transactions);
+    } catch (err) {
+      // Fallback: simple comma/tab split
+      console.warn('API parse failed, using client fallback:', err);
+      try {
+        const lines = text.trim().split('\n').filter(l => l.trim());
+        const parsed = lines.slice(1).map((line, i) => {
+          const cols = line.split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
+          return {
+            date: cols[0] || '',
+            description: cols[1] || `Transaction ${i + 1}`,
+            amount: Math.abs(parseFloat(cols[2]?.replace(/[^\d.-]/g, '') || '0')),
+            category: cols[3] || 'Other'
+          };
+        }).filter(t => t.amount > 0);
+        if (parsed.length === 0) throw new Error('Could not parse any transactions from the input.');
+        applyImportedTransactions(parsed);
+      } catch (fallbackErr) {
+        setImportError(fallbackErr.message || 'Import failed. Please check your data format.');
+      }
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleFileUpload = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => handleImportText(e.target.result);
+    reader.readAsText(file);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileUpload(file);
+  };
+
   return (
     <div className="space-y-6">
-      
-      {/* Header Bar */}
+
+      {/* ── Data Import Panel ───────────────────────────────────────────────── */}
+      <div className={`glass-panel rounded-2xl border transition-all ${showImportPanel ? 'border-cyan-500/40' : 'border-slate-800'}`}>
+        <button
+          type="button"
+          onClick={() => { setShowImportPanel(v => !v); setImportError(null); setImportSuccess(null); }}
+          className="w-full flex items-center justify-between p-5 text-left cursor-pointer group"
+        >
+          <div className="flex items-center space-x-3">
+            <div className={`h-9 w-9 rounded-xl flex items-center justify-center ${showImportPanel ? 'bg-cyan-500/20 border-cyan-500/40 border' : 'bg-slate-800 border-slate-700 border'}`}>
+              <Upload className={`h-4 w-4 ${showImportPanel ? 'text-cyan-400' : 'text-slate-400 group-hover:text-cyan-400'} transition-colors`} />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white">Import Your Financial Data</p>
+              <p className="text-xs text-slate-400">Upload a CSV bank export or paste transactions for personalized AI analysis</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            {usingPersonalData && (
+              <span className="flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <Database className="h-2.5 w-2.5" />
+                <span>Your Data 🔒</span>
+              </span>
+            )}
+            {showImportPanel ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+          </div>
+        </button>
+
+        {showImportPanel && (
+          <div className="px-5 pb-5 space-y-4 border-t border-slate-800 pt-4 animate-fadeIn">
+            {/* Drag-and-drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+                dragOver ? 'border-cyan-500 bg-cyan-500/10' : 'border-slate-700 hover:border-cyan-500/50 hover:bg-slate-900/50'
+              }`}
+            >
+              <FileText className={`h-8 w-8 mx-auto mb-3 ${dragOver ? 'text-cyan-400' : 'text-slate-500'}`} />
+              <p className="text-sm font-semibold text-white">Drop your bank CSV here</p>
+              <p className="text-xs text-slate-400 mt-1">or click to browse — supports CSV, TSV, and most bank exports</p>
+              <p className="text-[10px] text-slate-500 mt-2">Expected columns: Date, Description, Amount, Category (optional)</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.tsv,.txt"
+                className="hidden"
+                onChange={(e) => handleFileUpload(e.target.files?.[0])}
+              />
+            </div>
+
+            {/* Paste area */}
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-2">Or paste CSV / transaction text directly:</label>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={"Date,Description,Amount,Category\n2026-08-01,Netflix,15.99,Subscription\n2026-08-03,Whole Foods,87.42,Food & Dining\n2026-08-05,AWS Cloud,145.00,Cloud & Infra"}
+                rows={5}
+                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono placeholder-slate-600 focus:outline-none focus:border-cyan-500 resize-none"
+              />
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-[10px] text-slate-500">Gemini AI will auto-categorize and structure your data</p>
+                <button
+                  type="button"
+                  disabled={!pasteText.trim() || importLoading}
+                  onClick={() => handleImportText(pasteText)}
+                  className="px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold rounded-lg disabled:opacity-40 cursor-pointer transition-all flex items-center space-x-1.5"
+                >
+                  {importLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  <span>{importLoading ? 'Parsing with Gemini...' : 'Parse & Import'}</span>
+                </button>
+              </div>
+            </div>
+
+            {importError && (
+              <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs flex items-start space-x-2">
+                <X className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{importError}</span>
+              </div>
+            )}
+            {importSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-300 text-xs">
+                {importSuccess}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+
       <div className="glass-panel rounded-2xl p-6 relative overflow-hidden border border-slate-800">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="max-w-2xl">

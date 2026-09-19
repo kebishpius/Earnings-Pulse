@@ -236,3 +236,138 @@ Present the findings cleanly with specific dollar amounts and percentages where 
         ],
         "provider": "SEC EDGAR Intelligence Engine + Gemini Grounding"
     }
+
+
+def _build_portfolio_context_str(portfolio_context: dict) -> str:
+    """Format portfolio data into a context string for the advisor."""
+    if not portfolio_context:
+        return "No personal portfolio data provided. Give general financial advice."
+    lines = ["=== USER PORTFOLIO DATA ==="]
+    holdings = portfolio_context.get("holdings", [])
+    if holdings:
+        lines.append("\nINVESTMENT HOLDINGS:")
+        total = sum(h.get("current_value", 0) for h in holdings)
+        for h in holdings:
+            lines.append(
+                f"  - {h.get('symbol','N/A')} ({h.get('asset_name','Unknown')}): "
+                f"{h.get('allocation_pct',0)}% alloc, ${h.get('current_value',0):,.2f}, "
+                f"type: {h.get('asset_type','Equity')}"
+            )
+        lines.append(f"  TOTAL VALUE: ${total:,.2f}")
+    transactions = portfolio_context.get("transactions", [])
+    if transactions:
+        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records):")
+        total_spend = sum(float(t.get("amount", 0)) for t in transactions)
+        for t in transactions[:15]:
+            lines.append(
+                f"  - {t.get('date','N/A')}: {t.get('description','Unknown')} "
+                f"= ${float(t.get('amount',0)):.2f} [{t.get('category','Misc')}]"
+            )
+        lines.append(f"  TOTAL LOGGED SPEND: ${total_spend:,.2f}")
+    audit = portfolio_context.get("last_audit")
+    if audit:
+        lines.append(f"\nLAST AUDIT: Score {audit.get('overall_risk_score','N/A')}/100, Level: {audit.get('risk_level','N/A')}")
+    lines.append("=== END DATA ===")
+    return "\n".join(lines)
+
+
+def advise_with_gemini(user_message: str, portfolio_context: dict = None) -> dict:
+    """
+    Financial advisor chat using Gemini 2.0 Flash with user portfolio context.
+    Does NOT use web grounding — pure reasoning mode for personal advice.
+    """
+    portfolio_str = _build_portfolio_context_str(portfolio_context or {})
+    advisor_prompt = f"""You are EarningsPulse AI, a world-class quantitative financial advisor and portfolio risk analyst.
+You have been given the user's actual financial data below. Use it to give highly personalized, data-driven advice.
+
+{portfolio_str}
+
+Guidelines:
+- Reference specific numbers from their data (e.g., exact holdings, amounts, categories)
+- Be direct and actionable like a top-tier Goldman Sachs analyst
+- Flag risks proactively
+- Use clear formatting with bullet points where helpful
+- End with 1-2 concrete next steps the user can take TODAY
+- Keep responses focused (200-350 words unless a deep dive is requested)
+
+USER QUESTION: {user_message}
+
+Provide your expert financial advisory response:"""
+
+    has_key = bool(GEMINI_API_KEY and GEMINI_API_KEY.strip() and not GEMINI_API_KEY.startswith("dummy"))
+    if not has_key:
+        raise ValueError("GEMINI_API_KEY is not configured.")
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=advisor_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.7,
+                max_output_tokens=1024,
+            )
+        )
+        text = response.text if hasattr(response, "text") else str(response)
+        return {
+            "text": text,
+            "model": "Gemini 2.0 Flash",
+            "provider": "Google Gemini"
+        }
+    except Exception as e:
+        logger.error(f"Gemini advisor error: {e}")
+        raise RuntimeError(f"Gemini advisor error: {str(e)}")
+
+
+def parse_csv_with_gemini(csv_text: str) -> list:
+    """
+    Use Gemini to parse raw CSV bank/broker statement text into structured transactions.
+    Returns a list of dicts: {date, description, amount, category}
+    """
+    has_key = bool(GEMINI_API_KEY and GEMINI_API_KEY.strip() and not GEMINI_API_KEY.startswith("dummy"))
+    if not has_key:
+        raise ValueError("GEMINI_API_KEY not configured for CSV parsing.")
+
+    parse_prompt = f"""You are a financial data parser. Extract all transactions from the following bank/broker statement CSV or plain text.
+
+Return a valid JSON array where each element has these exact fields:
+- "date": date string (YYYY-MM-DD format if possible, otherwise as-is)
+- "description": merchant or transaction name (string)
+- "amount": absolute dollar amount as a number (always positive, even for debits/withdrawals)
+- "category": categorize into one of: ["Subscription", "Food & Dining", "Travel", "Shopping", "Healthcare", "Entertainment", "Utilities", "Income", "Investment", "Cloud & Infra", "AI Tools", "Fitness", "Finance Sub", "Trading Outflow", "Other"]
+
+INPUT DATA:
+---
+{csv_text[:4000]}
+---
+
+Return ONLY the JSON array, no explanation. Example format:
+[{{"date":"2026-08-01","description":"Netflix","amount":15.99,"category":"Subscription"}}]"""
+
+    try:
+        from google import genai
+        from google.genai import types
+        import json
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=parse_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=2048,
+            )
+        )
+        raw = response.text if hasattr(response, "text") else ""
+        # Extract JSON array from response
+        import re
+        match = re.search(r'\[[\s\S]*\]', raw)
+        if match:
+            return json.loads(match.group(0))
+        return json.loads(raw)
+    except Exception as e:
+        logger.error(f"CSV parse error: {e}")
+        raise RuntimeError(f"CSV parsing failed: {str(e)}")

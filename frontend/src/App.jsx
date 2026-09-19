@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAppAuth } from './auth/AuthContext';
 import Navbar from './components/Navbar';
+import { Activity, Lock, Cpu, Globe, ArrowRight, ShieldCheck, Sparkles, Settings, AlertCircle, RefreshCw, Brain } from 'lucide-react';
 import TabEarnings from './components/TabEarnings';
 import TabNews from './components/TabNews';
 import TabPortfolio from './components/TabPortfolio';
-import { Activity, Lock, Cpu, Globe, ArrowRight, ShieldCheck, Sparkles, Settings, AlertCircle, RefreshCw } from 'lucide-react';
+import TabAdvisor from './components/TabAdvisor';
 
 function App() {
   const {
@@ -83,7 +84,7 @@ function App() {
           
           <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-cyan-500/30 text-cyan-300 text-xs font-semibold tracking-wide mb-6 shadow-sm shadow-cyan-500/10">
             <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-            <span>Dual-Model Architecture: Gemini Search + NVIDIA Nemotron NIM</span>
+            <span>Triple-Model Architecture: Gemini + NVIDIA Nemotron + Anthropic Claude</span>
           </div>
 
           <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white max-w-2xl leading-tight">
@@ -201,6 +202,7 @@ function App() {
         {activeTab === 'earnings' && <TabEarnings />}
         {activeTab === 'news' && <TabNews />}
         {activeTab === 'portfolio' && <TabPortfolio />}
+        {activeTab === 'advisor' && <TabAdvisor />}
       </main>
 
       {/* Persistent Bottom Status Bar */}
@@ -213,14 +215,16 @@ function App() {
             <span>•</span>
             <span className="text-emerald-400 flex items-center space-x-1">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>Dual-Model API Online</span>
+              <span>Triple-Model AI Online</span>
             </span>
           </div>
 
           <div className="flex items-center space-x-4 text-[11px]">
-            <span>Model 1: Gemini 2.0 Flash Grounded</span>
+            <span>Model 1: Gemini 2.0 Flash</span>
             <span>•</span>
             <span>Model 2: NVIDIA Nemotron NIM</span>
+            <span>•</span>
+            <span className="text-violet-400">Model 3: Anthropic Claude Sonnet</span>
           </div>
         </div>
       </footer>

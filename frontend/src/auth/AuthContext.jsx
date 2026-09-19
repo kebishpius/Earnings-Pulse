@@ -83,6 +83,31 @@ const saveStoredPreferences = (userId, prefs) => {
   }
 };
 
+// Portfolio data persistence helpers (keyed by user ID)
+const getStoredPortfolio = (userId) => {
+  const key = `earningspulse_portfolio_${userId || 'default'}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return null;
+};
+
+const saveStoredPortfolio = (userId, portfolio) => {
+  const key = `earningspulse_portfolio_${userId || 'default'}`;
+  try {
+    if (portfolio) {
+      localStorage.setItem(key, JSON.stringify(portfolio));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+};
+
 // ----------------------------------------------------------------------
 // Inner Consumer for live Auth0 provider
 // ----------------------------------------------------------------------
@@ -116,9 +141,11 @@ const Auth0InnerConsumer = ({
   const activeUser = a0Auth ? a0User : demoUser;
   const userKey = activeUser?.sub || activeUser?.email || (demoUser ? 'demo' : 'guest');
   const [userPreferences, setUserPreferences] = useState(() => getStoredPreferences(userKey));
+  const [uploadedPortfolio, setUploadedPortfolioState] = useState(() => getStoredPortfolio(userKey));
 
   useEffect(() => {
     setUserPreferences(getStoredPreferences(userKey));
+    setUploadedPortfolioState(getStoredPortfolio(userKey));
   }, [userKey]);
 
   // When live Auth0 authenticates, clear any demo state
@@ -136,6 +163,16 @@ const Auth0InnerConsumer = ({
   const updateUserPreferences = (newPrefs) => {
     setUserPreferences(newPrefs);
     saveStoredPreferences(userKey, newPrefs);
+  };
+
+  const setUploadedPortfolio = (portfolio) => {
+    setUploadedPortfolioState(portfolio);
+    saveStoredPortfolio(userKey, portfolio);
+  };
+
+  const clearUploadedPortfolio = () => {
+    setUploadedPortfolioState(null);
+    saveStoredPortfolio(userKey, null);
   };
 
   const toggleBookmarkSignal = (signal) => {
@@ -213,7 +250,14 @@ const Auth0InnerConsumer = ({
     userPreferences,
     updateUserPreferences,
     toggleBookmarkSignal,
-    isSignalBookmarked
+    isSignalBookmarked,
+    uploadedPortfolio,
+    setUploadedPortfolio,
+    clearUploadedPortfolio,
+    hasPersonalData: Boolean(uploadedPortfolio && (
+      (uploadedPortfolio.holdings && uploadedPortfolio.holdings.length > 0) ||
+      (uploadedPortfolio.transactions && uploadedPortfolio.transactions.length > 0)
+    ))
   }), [
     demoUser,
     a0Auth,
@@ -222,7 +266,8 @@ const Auth0InnerConsumer = ({
     a0Error,
     authConfig,
     isProfileModalOpen,
-    userPreferences
+    userPreferences,
+    uploadedPortfolio
   ]);
 
   return (
@@ -255,14 +300,26 @@ const StandaloneConsumer = ({
 
   const userKey = demoUser ? 'demo' : 'guest';
   const [userPreferences, setUserPreferences] = useState(() => getStoredPreferences(userKey));
+  const [uploadedPortfolio, setUploadedPortfolioState] = useState(() => getStoredPortfolio(userKey));
 
   useEffect(() => {
     setUserPreferences(getStoredPreferences(userKey));
+    setUploadedPortfolioState(getStoredPortfolio(userKey));
   }, [userKey]);
 
   const updateUserPreferences = (newPrefs) => {
     setUserPreferences(newPrefs);
     saveStoredPreferences(userKey, newPrefs);
+  };
+
+  const setUploadedPortfolio = (portfolio) => {
+    setUploadedPortfolioState(portfolio);
+    saveStoredPortfolio(userKey, portfolio);
+  };
+
+  const clearUploadedPortfolio = () => {
+    setUploadedPortfolioState(null);
+    saveStoredPortfolio(userKey, null);
   };
 
   const toggleBookmarkSignal = (signal) => {
@@ -326,8 +383,15 @@ const StandaloneConsumer = ({
     userPreferences,
     updateUserPreferences,
     toggleBookmarkSignal,
-    isSignalBookmarked
-  }), [demoUser, authConfig, isProfileModalOpen, userPreferences]);
+    isSignalBookmarked,
+    uploadedPortfolio,
+    setUploadedPortfolio,
+    clearUploadedPortfolio,
+    hasPersonalData: Boolean(uploadedPortfolio && (
+      (uploadedPortfolio.holdings && uploadedPortfolio.holdings.length > 0) ||
+      (uploadedPortfolio.transactions && uploadedPortfolio.transactions.length > 0)
+    ))
+  }), [demoUser, authConfig, isProfileModalOpen, userPreferences, uploadedPortfolio]);
 
   return (
     <AuthContext.Provider value={contextValue}>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldAlert, Cpu, Globe, LogOut, ShieldCheck, Lock } from 'lucide-react';
+import { Activity, ShieldAlert, Cpu, Globe, LogOut, ShieldCheck, Lock, Brain } from 'lucide-react';
 import { useAppAuth } from '../auth/AuthContext';
 
 const Navbar = ({ activeTab, setActiveTab }) => {
@@ -137,6 +137,19 @@ const Navbar = ({ activeTab, setActiveTab }) => {
           >
             <Cpu className="h-4 w-4 text-emerald-400" />
             <span>3. Portfolio & Risk Audit</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('advisor')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+              activeTab === 'advisor'
+                ? 'bg-gradient-to-r from-violet-500/20 to-purple-500/20 text-violet-300 border border-violet-500/40 shadow-sm shadow-violet-500/10'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <Brain className="h-4 w-4 text-violet-400" />
+            <span>4. AI Financial Advisor</span>
           </button>
         </div>
 

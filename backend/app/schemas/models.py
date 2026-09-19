@@ -67,6 +67,8 @@ class TransactionItem(BaseModel):
 class PortfolioAuditRequest(BaseModel):
     holdings: List[HoldingItem] = []
     transactions: List[TransactionItem] = []
+    model_choice: Optional[str] = "council"  # council, nemotron, claude, gemini
+    user_id: Optional[str] = None
 
 class SubscriptionLeak(BaseModel):
     service: str
@@ -95,3 +97,6 @@ class PortfolioAuditResponse(BaseModel):
     concentration_risks: List[ConcentrationRisk] = []
     actionable_recommendations: List[str] = []
     summary: str
+    model_used: Optional[str] = "Tri-Model AI Council (Gemini + Nemotron + Claude)"
+    council_insights: Optional[Dict[str, Any]] = None
+

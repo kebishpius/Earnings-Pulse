@@ -506,3 +506,88 @@ Conduct comprehensive risk & leakage audit and return valid JSON inside ```json 
                 "Implement pre-trade stop-loss triggers to insulate portfolio from high-beta drawdowns."
             ]
         }
+
+
+def _build_nemotron_portfolio_context(portfolio_context: dict) -> str:
+    """Format portfolio data for Nemotron advisor context."""
+    if not portfolio_context:
+        return "No personal portfolio data provided. Give general financial advice."
+    lines = ["=== USER PORTFOLIO DATA ==="]
+    holdings = portfolio_context.get("holdings", [])
+    if holdings:
+        lines.append("\nINVESTMENT HOLDINGS:")
+        total = sum(h.get("current_value", 0) for h in holdings)
+        for h in holdings:
+            lines.append(
+                f"  - {h.get('symbol','N/A')} ({h.get('asset_name','Unknown')}): "
+                f"{h.get('allocation_pct',0)}% alloc, ${h.get('current_value',0):,.2f}, "
+                f"type: {h.get('asset_type','Equity')}"
+            )
+        lines.append(f"  TOTAL VALUE: ${total:,.2f}")
+    transactions = portfolio_context.get("transactions", [])
+    if transactions:
+        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records):")
+        total_spend = sum(float(t.get("amount", 0)) for t in transactions)
+        for t in transactions[:15]:
+            lines.append(
+                f"  - {t.get('date','N/A')}: {t.get('description','Unknown')} "
+                f"= ${float(t.get('amount',0)):.2f} [{t.get('category','Misc')}]"
+            )
+        lines.append(f"  TOTAL LOGGED SPEND: ${total_spend:,.2f}")
+    audit = portfolio_context.get("last_audit")
+    if audit:
+        lines.append(
+            f"\nLAST AUDIT: Score {audit.get('overall_risk_score','N/A')}/100, "
+            f"Level: {audit.get('risk_level','N/A')}"
+        )
+    lines.append("=== END DATA ===")
+    return "\n".join(lines)
+
+
+def advise_with_nemotron(user_message: str, portfolio_context: dict = None) -> dict:
+    """
+    Financial advisor using NVIDIA Nemotron NIM with full portfolio context.
+    Returns dict with 'text' and 'model' keys.
+    """
+    portfolio_str = _build_nemotron_portfolio_context(portfolio_context or {})
+
+    system_prompt = f"""You are EarningsPulse AI, a world-class quantitative financial advisor powered by NVIDIA Nemotron.
+You have been given the user's actual financial data below. Use it to give highly personalized, data-driven advice.
+
+{portfolio_str}
+
+Guidelines:
+- Reference specific numbers from their data (exact holdings, amounts, categories)
+- Be direct and actionable like a top-tier institutional asset manager
+- Apply quantitative risk principles: Sharpe ratios, drawdown analysis, concentration limits
+- Flag risks proactively and aggressively
+- Use clear formatting with bullet points or numbered lists when presenting multiple items
+- End with 1-2 concrete next steps the user can take TODAY
+- Keep responses focused and precise (200-400 words unless a deep dive is requested)"""
+
+    client = _get_nvidia_client()
+
+    for model in NVIDIA_FALLBACK_MODELS:
+        try:
+            logger.info(f"Nemotron advisor using model: {model}")
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0.7,
+                max_tokens=1024,
+                timeout=60
+            )
+            text = completion.choices[0].message.content if completion.choices else "No response generated."
+            return {
+                "text": text,
+                "model": f"Nemotron ({model})",
+                "provider": "NVIDIA NIM"
+            }
+        except Exception as e:
+            logger.warning(f"Nemotron advisor model {model} failed: {e}")
+            continue
+
+    raise RuntimeError("All NVIDIA Nemotron models failed for advisor request.")

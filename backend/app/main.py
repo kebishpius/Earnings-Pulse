@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import NVIDIA_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY, NVIDIA_MODEL
-from app.routers import earnings, news, audit
+from app.routers import earnings, news, audit, advisor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +37,7 @@ app.add_middleware(
 app.include_router(earnings.router)
 app.include_router(news.router)
 app.include_router(audit.router)
+app.include_router(advisor.router)
 
 @app.get("/")
 def read_root():
@@ -58,7 +59,8 @@ def health_check():
         "gemini_configured": bool(GEMINI_API_KEY),
         "nvidia_configured": bool(NVIDIA_API_KEY),
         "anthropic_configured": bool(ANTHROPIC_API_KEY),
-        "nemotron_model": NVIDIA_MODEL
+        "nemotron_model": NVIDIA_MODEL,
+        "features": ["earnings", "news", "portfolio-audit", "ai-advisor", "data-upload"]
     }
 
 @app.get("/api/presets")
