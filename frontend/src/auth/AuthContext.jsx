@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
+import UserProfileModal from '../components/UserProfileModal';
 
 const AuthContext = createContext(null);
 
@@ -58,10 +59,42 @@ const DEMO_USER = {
   institution: "SteelHacks Asset Management"
 };
 
+const getStoredPreferences = (userId) => {
+  const key = `earningspulse_prefs_${userId || 'default'}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return {
+    riskTolerance: 'Balanced',
+    watchlist: ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'META'],
+    savedSignals: []
+  };
+};
+
+const saveStoredPreferences = (userId, prefs) => {
+  const key = `earningspulse_prefs_${userId || 'default'}`;
+  try {
+    localStorage.setItem(key, JSON.stringify(prefs));
+  } catch {
+    // ignore
+  }
+};
+
 // ----------------------------------------------------------------------
 // Inner Consumer for live Auth0 provider
 // ----------------------------------------------------------------------
-const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfigModal }) => {
+const Auth0InnerConsumer = ({
+  children,
+  authConfig,
+  updateAuthConfig,
+  openConfigModal,
+  isProfileModalOpen,
+  openProfileModal,
+  closeProfileModal
+}) => {
   const {
     isAuthenticated: a0Auth,
     user: a0User,
@@ -80,6 +113,14 @@ const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfig
     }
   });
 
+  const activeUser = a0Auth ? a0User : demoUser;
+  const userKey = activeUser?.sub || activeUser?.email || (demoUser ? 'demo' : 'guest');
+  const [userPreferences, setUserPreferences] = useState(() => getStoredPreferences(userKey));
+
+  useEffect(() => {
+    setUserPreferences(getStoredPreferences(userKey));
+  }, [userKey]);
+
   // When live Auth0 authenticates, clear any demo state
   useEffect(() => {
     if (a0Auth) {
@@ -91,6 +132,27 @@ const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfig
       }
     }
   }, [a0Auth]);
+
+  const updateUserPreferences = (newPrefs) => {
+    setUserPreferences(newPrefs);
+    saveStoredPreferences(userKey, newPrefs);
+  };
+
+  const toggleBookmarkSignal = (signal) => {
+    setUserPreferences(prev => {
+      const exists = (prev.savedSignals || []).some(s => s.id === signal.id);
+      const updated = exists
+        ? (prev.savedSignals || []).filter(s => s.id !== signal.id)
+        : [signal, ...(prev.savedSignals || [])];
+      const newPrefs = { ...prev, savedSignals: updated };
+      saveStoredPreferences(userKey, newPrefs);
+      return newPrefs;
+    });
+  };
+
+  const isSignalBookmarked = (signalId) => {
+    return Boolean((userPreferences?.savedSignals || []).some(s => s.id === signalId));
+  };
 
   const loginAsDemo = () => {
     setDemoUser(DEMO_USER);
@@ -144,8 +206,24 @@ const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfig
     loginAsDemo,
     logout,
     updateAuthConfig,
-    openConfigModal
-  }), [demoUser, a0Auth, a0User, a0Loading, a0Error, authConfig]);
+    openConfigModal,
+    isProfileModalOpen,
+    openProfileModal,
+    closeProfileModal,
+    userPreferences,
+    updateUserPreferences,
+    toggleBookmarkSignal,
+    isSignalBookmarked
+  }), [
+    demoUser,
+    a0Auth,
+    a0User,
+    a0Loading,
+    a0Error,
+    authConfig,
+    isProfileModalOpen,
+    userPreferences
+  ]);
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -157,7 +235,15 @@ const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfig
 // ----------------------------------------------------------------------
 // Standalone Consumer for unconfigured / demo mode
 // ----------------------------------------------------------------------
-const StandaloneConsumer = ({ children, authConfig, updateAuthConfig, openConfigModal }) => {
+const StandaloneConsumer = ({
+  children,
+  authConfig,
+  updateAuthConfig,
+  openConfigModal,
+  isProfileModalOpen,
+  openProfileModal,
+  closeProfileModal
+}) => {
   const [demoUser, setDemoUser] = useState(() => {
     try {
       const saved = localStorage.getItem('earningspulse_demo_user');
@@ -166,6 +252,34 @@ const StandaloneConsumer = ({ children, authConfig, updateAuthConfig, openConfig
       return null;
     }
   });
+
+  const userKey = demoUser ? 'demo' : 'guest';
+  const [userPreferences, setUserPreferences] = useState(() => getStoredPreferences(userKey));
+
+  useEffect(() => {
+    setUserPreferences(getStoredPreferences(userKey));
+  }, [userKey]);
+
+  const updateUserPreferences = (newPrefs) => {
+    setUserPreferences(newPrefs);
+    saveStoredPreferences(userKey, newPrefs);
+  };
+
+  const toggleBookmarkSignal = (signal) => {
+    setUserPreferences(prev => {
+      const exists = (prev.savedSignals || []).some(s => s.id === signal.id);
+      const updated = exists
+        ? (prev.savedSignals || []).filter(s => s.id !== signal.id)
+        : [signal, ...(prev.savedSignals || [])];
+      const newPrefs = { ...prev, savedSignals: updated };
+      saveStoredPreferences(userKey, newPrefs);
+      return newPrefs;
+    });
+  };
+
+  const isSignalBookmarked = (signalId) => {
+    return Boolean((userPreferences?.savedSignals || []).some(s => s.id === signalId));
+  };
 
   const loginAsDemo = () => {
     setDemoUser(DEMO_USER);
@@ -205,8 +319,15 @@ const StandaloneConsumer = ({ children, authConfig, updateAuthConfig, openConfig
     loginAsDemo,
     logout,
     updateAuthConfig,
-    openConfigModal
-  }), [demoUser, authConfig]);
+    openConfigModal,
+    isProfileModalOpen,
+    openProfileModal,
+    closeProfileModal,
+    userPreferences,
+    updateUserPreferences,
+    toggleBookmarkSignal,
+    isSignalBookmarked
+  }), [demoUser, authConfig, isProfileModalOpen, userPreferences]);
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -221,6 +342,7 @@ const StandaloneConsumer = ({ children, authConfig, updateAuthConfig, openConfig
 export const AuthProvider = ({ children }) => {
   const [authConfig, setAuthConfig] = useState(getAuthConfig);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const updateAuthConfig = (newDomain, newClientId) => {
     const trimmedDomain = (newDomain || '').trim();
@@ -244,6 +366,9 @@ export const AuthProvider = ({ children }) => {
 
   const openConfigModal = () => setIsConfigModalOpen(true);
   const closeConfigModal = () => setIsConfigModalOpen(false);
+
+  const openProfileModal = () => setIsProfileModalOpen(true);
+  const closeProfileModal = () => setIsProfileModalOpen(false);
 
   const onRedirectCallback = (appState) => {
     window.history.replaceState(
@@ -270,6 +395,9 @@ export const AuthProvider = ({ children }) => {
           authConfig={authConfig}
           updateAuthConfig={updateAuthConfig}
           openConfigModal={openConfigModal}
+          isProfileModalOpen={isProfileModalOpen}
+          openProfileModal={openProfileModal}
+          closeProfileModal={closeProfileModal}
         >
           {children}
           {isConfigModalOpen && (
@@ -277,6 +405,12 @@ export const AuthProvider = ({ children }) => {
               authConfig={authConfig}
               onSave={updateAuthConfig}
               onClose={closeConfigModal}
+            />
+          )}
+          {isProfileModalOpen && (
+            <UserProfileModal
+              isOpen={isProfileModalOpen}
+              onClose={closeProfileModal}
             />
           )}
         </Auth0InnerConsumer>
@@ -290,6 +424,9 @@ export const AuthProvider = ({ children }) => {
       authConfig={authConfig}
       updateAuthConfig={updateAuthConfig}
       openConfigModal={openConfigModal}
+      isProfileModalOpen={isProfileModalOpen}
+      openProfileModal={openProfileModal}
+      closeProfileModal={closeProfileModal}
     >
       {children}
       {isConfigModalOpen && (
@@ -297,6 +434,12 @@ export const AuthProvider = ({ children }) => {
           authConfig={authConfig}
           onSave={updateAuthConfig}
           onClose={closeConfigModal}
+        />
+      )}
+      {isProfileModalOpen && (
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={closeProfileModal}
         />
       )}
     </StandaloneConsumer>

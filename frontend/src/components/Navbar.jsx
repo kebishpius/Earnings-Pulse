@@ -3,7 +3,7 @@ import { Activity, ShieldAlert, Cpu, Globe, LogOut, ShieldCheck, Lock } from 'lu
 import { useAppAuth } from '../auth/AuthContext';
 
 const Navbar = ({ activeTab, setActiveTab }) => {
-  const { user, logout, isDemo, isAuth0User } = useAppAuth();
+  const { user, logout, isDemo, isAuth0User, openProfileModal } = useAppAuth();
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#070a12]/90 backdrop-blur-xl">
@@ -46,36 +46,48 @@ const Navbar = ({ activeTab, setActiveTab }) => {
             </div>
           </div>
 
-          {/* User Profile & Logout */}
+          {/* User Profile & Settings */}
           <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2 pl-3 pr-2 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-xs">
-              {user?.picture ? (
-                <img src={user.picture} alt={user.name || "User"} className="h-6 w-6 rounded-full border border-cyan-500/50 object-cover" />
-              ) : (
-                <div className="h-6 w-6 rounded-full bg-cyan-900 flex items-center justify-center text-cyan-300 font-bold text-[10px]">
-                  {user?.name?.[0] || 'U'}
+            <div className="flex items-center space-x-2 pl-2 pr-2 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-xs shadow-inner">
+              <button
+                type="button"
+                onClick={openProfileModal}
+                title="Open Auth0 Profile & Quant Risk Settings"
+                className="flex items-center space-x-2 text-left hover:opacity-90 transition-opacity cursor-pointer group"
+              >
+                {user?.picture ? (
+                  <img src={user.picture} alt={user.name || "User"} className="h-7 w-7 rounded-full border border-cyan-500/50 object-cover group-hover:border-cyan-400" />
+                ) : (
+                  <div className="h-7 w-7 rounded-full bg-cyan-900/90 border border-cyan-500/40 flex items-center justify-center text-cyan-300 font-bold text-xs">
+                    {user?.name?.[0] || 'U'}
+                  </div>
+                )}
+                <div className="hidden sm:block text-left">
+                  <div className="flex items-center space-x-1.5">
+                    <p className="text-[11px] font-semibold text-slate-200 group-hover:text-cyan-300 transition-colors leading-none">
+                      {user?.name || "Analyst"}
+                    </p>
+                    {isAuth0User ? (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center space-x-0.5">
+                        <Lock className="h-2 w-2" />
+                        <span>Auth0</span>
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-0.5">
+                        <ShieldCheck className="h-2 w-2" />
+                        <span>Demo</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[9px] text-slate-400 leading-tight truncate max-w-[130px] mt-0.5">
+                    {user?.email || "Authenticated"}
+                  </p>
                 </div>
-              )}
-              <div className="hidden sm:block text-left">
-                <div className="flex items-center space-x-1.5">
-                  <p className="text-[11px] font-semibold text-slate-200 leading-none">{user?.name || "Analyst"}</p>
-                  {isAuth0User ? (
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center space-x-0.5">
-                      <Lock className="h-2 w-2" />
-                      <span>Auth0</span>
-                    </span>
-                  ) : (
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-0.5">
-                      <ShieldCheck className="h-2 w-2" />
-                      <span>Demo</span>
-                    </span>
-                  )}
-                </div>
-                <p className="text-[9px] text-slate-400 leading-tight truncate max-w-[130px]">{user?.email || "Authenticated"}</p>
-              </div>
+              </button>
+
               <button
                 onClick={logout}
-                title="Sign Out"
+                title="Sign Out of Session"
                 type="button"
                 className="p-1 rounded-full text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-colors ml-1 cursor-pointer"
               >
