@@ -12,6 +12,7 @@ export const isAuth0Placeholder = (val) => {
     s.includes('dummy') ||
     s.includes('example.com') ||
     s.includes('your_') ||
+    s.includes('steelhacks') ||
     s === 'undefined' ||
     s === 'null'
   );
@@ -19,20 +20,24 @@ export const isAuth0Placeholder = (val) => {
 
 // Retrieve configured or persisted domain and clientId
 export const getAuthConfig = () => {
-  const envDomain = import.meta.env.VITE_AUTH0_DOMAIN || '';
-  const envClientId = import.meta.env.VITE_AUTH0_CLIENT_ID || '';
+  const envDomain = (import.meta.env.VITE_AUTH0_DOMAIN || '').trim();
+  const envClientId = (import.meta.env.VITE_AUTH0_CLIENT_ID || '').trim();
 
   let savedDomain = '';
   let savedClientId = '';
   try {
-    savedDomain = localStorage.getItem('earningspulse_auth0_domain') || '';
-    savedClientId = localStorage.getItem('earningspulse_auth0_client_id') || '';
+    savedDomain = (localStorage.getItem('earningspulse_auth0_domain') || '').trim();
+    savedClientId = (localStorage.getItem('earningspulse_auth0_client_id') || '').trim();
   } catch {
     // localStorage might not be available in some private browsing contexts
   }
 
-  const domain = (savedDomain || envDomain).trim();
-  const clientId = (savedClientId || envClientId).trim();
+  // If saved values are legacy placeholders, discard them
+  if (isAuth0Placeholder(savedDomain)) savedDomain = '';
+  if (isAuth0Placeholder(savedClientId)) savedClientId = '';
+
+  const domain = savedDomain || envDomain;
+  const clientId = savedClientId || envClientId;
 
   const isConfigured = Boolean(
     domain &&
@@ -75,6 +80,18 @@ const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfig
     }
   });
 
+  // When live Auth0 authenticates, clear any demo state
+  useEffect(() => {
+    if (a0Auth) {
+      setDemoUser(null);
+      try {
+        localStorage.removeItem('earningspulse_demo_user');
+      } catch {
+        // ignore
+      }
+    }
+  }, [a0Auth]);
+
   const loginAsDemo = () => {
     setDemoUser(DEMO_USER);
     try {
@@ -92,14 +109,22 @@ const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfig
       // ignore
     }
     if (a0Auth && a0Logout) {
-      a0Logout({ logoutParams: { returnTo: window.location.origin } });
+      a0Logout({
+        logoutParams: {
+          returnTo: window.location.origin
+        }
+      });
     }
   };
 
   const loginWithAuth0 = async () => {
     try {
       if (loginWithRedirect) {
-        await loginWithRedirect();
+        await loginWithRedirect({
+          appState: {
+            returnTo: window.location.pathname
+          }
+        });
       }
     } catch (err) {
       console.error("Auth0 login error:", err);
@@ -107,10 +132,10 @@ const Auth0InnerConsumer = ({ children, authConfig, updateAuthConfig, openConfig
   };
 
   const contextValue = useMemo(() => ({
-    isAuthenticated: Boolean(demoUser || a0Auth),
-    user: demoUser || (a0Auth ? a0User : null),
-    isDemo: Boolean(demoUser),
-    isAuth0User: Boolean(!demoUser && a0Auth),
+    isAuthenticated: Boolean(a0Auth || demoUser),
+    user: a0Auth ? a0User : demoUser,
+    isDemo: Boolean(!a0Auth && demoUser),
+    isAuth0User: Boolean(a0Auth),
     isLoading: Boolean(!demoUser && a0Loading),
     isAuth0Configured: true,
     authConfig,
@@ -220,6 +245,14 @@ export const AuthProvider = ({ children }) => {
   const openConfigModal = () => setIsConfigModalOpen(true);
   const closeConfigModal = () => setIsConfigModalOpen(false);
 
+  const onRedirectCallback = (appState) => {
+    window.history.replaceState(
+      {},
+      document.title,
+      appState?.returnTo || window.location.pathname
+    );
+  };
+
   // If valid non-placeholder domain and clientId are provided, mount the official Auth0Provider
   if (authConfig.isConfigured) {
     return (
@@ -229,7 +262,9 @@ export const AuthProvider = ({ children }) => {
         authorizationParams={{
           redirect_uri: typeof window !== 'undefined' ? window.location.origin : ''
         }}
+        onRedirectCallback={onRedirectCallback}
         cacheLocation="localstorage"
+        useRefreshTokens={true}
       >
         <Auth0InnerConsumer
           authConfig={authConfig}
