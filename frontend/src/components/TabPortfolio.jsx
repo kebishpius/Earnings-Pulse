@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert, Trash2, RotateCcw, Sparkles, Upload, FileText, X, Database, ChevronDown, ChevronUp, Download, ExternalLink, HelpCircle, Briefcase } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert, Trash2, RotateCcw, Sparkles, Upload, FileText, X, Database, ChevronDown, ChevronUp, Download, ExternalLink, HelpCircle, Briefcase, Zap, Lock, Link2 } from 'lucide-react';
 import { INITIAL_PORTFOLIO } from '../mockData/samples';
 import { useAppAuth } from '../auth/AuthContext';
+import BrokerageConnectModal from './BrokerageConnectModal';
 
 
 // Client-side quantitative risk auditor if backend is offline/unreachable
@@ -87,14 +88,49 @@ const TabPortfolio = () => {
   const [isClientSideAudit, setIsClientSideAudit] = useState(false);
   const [usingPersonalData, setUsingPersonalData] = useState(hasPersonalData);
 
-  // Import panel state
+  // Import panel & Brokerage modal state
   const [showImportPanel, setShowImportPanel] = useState(false);
+  const [showBrokerageModal, setShowBrokerageModal] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState(null);
   const [importSuccess, setImportSuccess] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
   const [pasteText, setPasteText] = useState('');
+
+  const handleBrokerSyncSuccess = (syncedData) => {
+    if (!syncedData?.holdings || syncedData.holdings.length === 0) return;
+
+    const validHoldings = syncedData.holdings.map((h) => ({
+      symbol: h.symbol.toUpperCase(),
+      asset_name: h.asset_name || h.symbol,
+      asset_type: h.asset_type || 'Equity',
+      allocation_pct: parseFloat(h.allocation_pct) || 0,
+      current_value: parseFloat(h.current_value) || 0
+    })).filter(h => h.current_value > 0);
+
+    if (validHoldings.length === 0) return;
+
+    const totalVal = validHoldings.reduce((acc, h) => acc + h.current_value, 0);
+    if (totalVal > 0) {
+      validHoldings.forEach(h => {
+        h.allocation_pct = Math.round((h.current_value / totalVal) * 1000) / 10;
+      });
+    }
+
+    setHoldings(validHoldings);
+    setIsLedgerModified(true);
+    setUsingPersonalData(true);
+    setAuditResult(null);
+
+    setUploadedPortfolio({
+      holdings: validHoldings,
+      transactions: transactions,
+      last_audit: null
+    });
+
+    setImportSuccess(`✓ Successfully linked ${syncedData.institution_name}! ${validHoldings.length} holdings ($${totalVal.toLocaleString()}) synced.`);
+  };
 
   // Quick transaction add state
   const [newDesc, setNewDesc] = useState('');
@@ -384,6 +420,42 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
 
   return (
     <div className="space-y-6">
+
+      {/* ── 1-Click Institutional Brokerage Sync Banner (Robinhood, Fidelity, Schwab) ── */}
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-gradient-to-r from-emerald-950/40 via-slate-900 to-cyan-950/40 p-5 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start space-x-3.5">
+            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 shadow-inner">
+              <Zap className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold text-white">Direct Brokerage Connection</h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  SnapTrade Read-Only OAuth
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center space-x-1">
+                  <Lock className="h-2.5 w-2.5" />
+                  <span>No Passwords Stored</span>
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1">
+                Link <strong>Robinhood</strong>, <strong>Fidelity</strong>, <strong>Charles Schwab</strong>, or <strong>Webull</strong> with 1 click to automatically stream live portfolio positions into the AI Risk Auditor.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowBrokerageModal(true)}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer group"
+            >
+              <Zap className="h-4 w-4 fill-slate-950 group-hover:scale-110 transition-transform" />
+              <span>Connect Robinhood / Fidelity</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* ── Data Import Panel ───────────────────────────────────────────────── */}
       <div className={`glass-panel rounded-2xl border transition-all ${showImportPanel ? 'border-cyan-500/40' : 'border-slate-800'}`}>
@@ -961,6 +1033,14 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
         </div>
 
       </div>
+
+      {/* ── SnapTrade Brokerage Connection Modal ── */}
+      <BrokerageConnectModal
+        isOpen={showBrokerageModal}
+        onClose={() => setShowBrokerageModal(false)}
+        onSyncSuccess={handleBrokerSyncSuccess}
+        userId={uploadedPortfolio?.userId}
+      />
 
     </div>
   );

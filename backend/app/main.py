@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import NVIDIA_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY, NVIDIA_MODEL
-from app.routers import earnings, news, audit, advisor
+from app.routers import earnings, news, audit, advisor, brokerage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +38,7 @@ app.include_router(earnings.router)
 app.include_router(news.router)
 app.include_router(audit.router)
 app.include_router(advisor.router)
+app.include_router(brokerage.router)
 
 @app.get("/")
 def read_root():
