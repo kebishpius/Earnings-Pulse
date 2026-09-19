@@ -3,6 +3,7 @@ import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, Exter
 
 import { SAMPLE_QUERIES } from '../mockData/samples';
 import { getCompanySuggestions, POPULAR_COMPANIES } from '../mockData/companies';
+import StockPriceChart from './StockPriceChart';
 
 // Curated intelligent fallback dossiers for seamless testing when backend is offline
 const FALLBACK_EARNINGS_DATABASE = {
@@ -896,6 +897,9 @@ const TabEarnings = () => {
               </div>
             </div>
           </div>
+
+          {/* Interactive Price Chart */}
+          <StockPriceChart ticker={result.ticker} companyName={result.company_name} />
 
           {/* Key Metrics Grid */}
           <div>
