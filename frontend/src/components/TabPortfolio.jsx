@@ -95,6 +95,7 @@ const TabPortfolio = () => {
   const [importError, setImportError] = useState(null);
   const [importSuccess, setImportSuccess] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [loadingPreset, setLoadingPreset] = useState(null);
   const fileInputRef = useRef(null);
   const [pasteText, setPasteText] = useState('');
 
@@ -417,6 +418,19 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
     if (file) handleFileUpload(file);
   };
 
+  // Presets parse silently: the raw broker CSV is never surfaced in the paste box,
+  // only the finished holdings/ledger once parsing resolves.
+  const handlePresetImport = async (key) => {
+    const preset = BROKER_PRESETS[key];
+    if (!preset || importLoading) return;
+    setLoadingPreset(key);
+    try {
+      await handleImportText(preset.csv);
+    } finally {
+      setLoadingPreset(null);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -487,48 +501,63 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
         {showImportPanel && (
           <div className="px-5 pb-5 space-y-4 border-t border-slate-800 pt-4 animate-fadeIn">
             {/* Quick 1-Click Test Presets */}
-            <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-                  <span>Test Real Broker Formats (1-Click Instant Preview):</span>
-                </span>
-                <span className="text-[10px] text-slate-500 font-mono">No login required to test</span>
+            <div className="relative p-3.5 rounded-xl bg-slate-900/70 border border-slate-800">
+              <div className={`transition-opacity ${loadingPreset ? 'opacity-30 pointer-events-none select-none' : 'opacity-100'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Test Real Broker Formats (1-Click Instant Preview):</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">No login required to test</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    disabled={importLoading}
+                    onClick={() => handlePresetImport('schwab')}
+                    className="px-2.5 py-1.5 rounded-lg bg-blue-950/40 hover:bg-blue-900/50 border border-blue-500/30 text-blue-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <Briefcase className="h-3 w-3 shrink-0" />
+                    <span>Schwab Positions</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={importLoading}
+                    onClick={() => handlePresetImport('robinhood')}
+                    className="px-2.5 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <Briefcase className="h-3 w-3 shrink-0" />
+                    <span>Robinhood CSV</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={importLoading}
+                    onClick={() => handlePresetImport('fidelity')}
+                    className="px-2.5 py-1.5 rounded-lg bg-green-950/40 hover:bg-green-900/50 border border-green-500/30 text-green-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <Briefcase className="h-3 w-3 shrink-0" />
+                    <span>Fidelity Portfolio</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={importLoading}
+                    onClick={() => handlePresetImport('bank')}
+                    className="px-2.5 py-1.5 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-500/30 text-purple-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <CreditCard className="h-3 w-3 shrink-0" />
+                    <span>Bank Statement</span>
+                  </button>
+                </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setPasteText(BROKER_PRESETS.schwab.csv); handleImportText(BROKER_PRESETS.schwab.csv); }}
-                  className="px-2.5 py-1.5 rounded-lg bg-blue-950/40 hover:bg-blue-900/50 border border-blue-500/30 text-blue-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
-                >
-                  <Briefcase className="h-3 w-3 shrink-0" />
-                  <span>Schwab Positions</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setPasteText(BROKER_PRESETS.robinhood.csv); handleImportText(BROKER_PRESETS.robinhood.csv); }}
-                  className="px-2.5 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
-                >
-                  <Briefcase className="h-3 w-3 shrink-0" />
-                  <span>Robinhood CSV</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setPasteText(BROKER_PRESETS.fidelity.csv); handleImportText(BROKER_PRESETS.fidelity.csv); }}
-                  className="px-2.5 py-1.5 rounded-lg bg-green-950/40 hover:bg-green-900/50 border border-green-500/30 text-green-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
-                >
-                  <Briefcase className="h-3 w-3 shrink-0" />
-                  <span>Fidelity Portfolio</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setPasteText(BROKER_PRESETS.bank.csv); handleImportText(BROKER_PRESETS.bank.csv); }}
-                  className="px-2.5 py-1.5 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-500/30 text-purple-300 text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer"
-                >
-                  <CreditCard className="h-3 w-3 shrink-0" />
-                  <span>Bank Statement</span>
-                </button>
-              </div>
+
+              {loadingPreset && (
+                <div className="absolute inset-0 rounded-xl bg-slate-950/80 backdrop-blur-sm flex items-center justify-center">
+                  <span className="flex items-center space-x-2 text-xs font-semibold text-cyan-300">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Loading {BROKER_PRESETS[loadingPreset]?.name}...</span>
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* How to Grab Your Portfolio Guide Accordion */}
