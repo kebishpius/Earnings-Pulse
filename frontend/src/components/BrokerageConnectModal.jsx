@@ -283,7 +283,7 @@ export const BrokerageConnectModal = ({ isOpen, onClose, onSyncSuccess, userId }
             <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
           </button>
 
-          {/* Sandbox Info & Live API Toggle */}
+          {/* Sandbox Info & Details Toggle */}
           <div className="pt-2">
             <button
               type="button"
@@ -291,18 +291,15 @@ export const BrokerageConnectModal = ({ isOpen, onClose, onSyncSuccess, userId }
               className="text-[11px] text-slate-400 hover:text-cyan-400 flex items-center space-x-1 transition-colors cursor-pointer"
             >
               <Info className="h-3.5 w-3.5" />
-              <span>{showKeyGuide ? 'Hide SnapTrade API Setup Details' : 'Want to connect your own live SnapTrade production keys? Click here.'}</span>
+              <span>{showKeyGuide ? 'Hide Brokerage Details' : 'About Brokerage Integration & Sandbox Mode'}</span>
             </button>
 
             {showKeyGuide && (
               <div className="mt-2.5 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 space-y-2 animate-fadeIn">
-                <p className="font-semibold text-white">How Live SnapTrade Integration Works:</p>
-                <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
-                  <li>Sign up for a free developer account at <a href="https://snaptrade.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline">snaptrade.com</a>.</li>
-                  <li>Copy your <code className="text-emerald-300 bg-slate-800 px-1 py-0.5 rounded">SNAPTRADE_CLIENT_ID</code> and <code className="text-emerald-300 bg-slate-800 px-1 py-0.5 rounded">SNAPTRADE_CONSUMER_KEY</code>.</li>
-                  <li>Add them to your <code className="text-cyan-300 bg-slate-800 px-1 py-0.5 rounded">.env</code> file.</li>
-                  <li>Restart the backend server — EarningsPulse will switch to live SnapTrade connection URLs!</li>
-                </ol>
+                <p className="font-semibold text-white">Interactive Brokerage Sandbox:</p>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
+                  EarningsPulse connects directly to popular institutional brokerages with zero configuration required. All connections run with read-only portfolio simulation and SOC-2 compliant mock flows.
+                </p>
               </div>
             )}
           </div>

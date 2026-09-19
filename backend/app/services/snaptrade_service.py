@@ -8,8 +8,6 @@ import time
 from typing import Dict, Any, List, Optional
 from urllib.parse import urlencode
 import httpx
-from app.config import SNAPTRADE_CLIENT_ID, SNAPTRADE_CONSUMER_KEY, SNAPTRADE_BASE_URL
-
 logger = logging.getLogger("earningspulse.snaptrade")
 
 # Built-in realistic broker portfolios for Instant Sandbox / Demo mode
@@ -221,10 +219,10 @@ SANDBOX_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 class SnapTradeService:
-    def __init__(self):
-        self.client_id = SNAPTRADE_CLIENT_ID.strip()
-        self.consumer_key = SNAPTRADE_CONSUMER_KEY.strip()
-        self.base_url = SNAPTRADE_BASE_URL.rstrip("/")
+    def __init__(self, client_id: str = "", consumer_key: str = "", base_url: str = "https://api.snaptrade.com/api/v1"):
+        self.client_id = client_id.strip()
+        self.consumer_key = consumer_key.strip()
+        self.base_url = base_url.rstrip("/")
         self._user_registry: Dict[str, str] = {}
 
     @property
