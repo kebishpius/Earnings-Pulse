@@ -18,6 +18,19 @@ class CitationItem(BaseModel):
     title: Optional[str] = "Source"
     uri: Optional[str] = "#"
 
+class SentimentEvidenceItem(BaseModel):
+    source_type: str = "Evidence"   # "Earnings report" or "Article"
+    label: str = "Evidence"
+    signal: str = "Neutral"         # Bullish, Neutral, Bearish
+    detail: Optional[str] = None
+
+class NewsArticleItem(BaseModel):
+    title: str
+    publisher: Optional[str] = None
+    published: Optional[str] = None
+    url: Optional[str] = None
+    summary: Optional[str] = None
+
 class EarningsAnalysisResponse(BaseModel):
     company_name: str
     ticker: str
@@ -30,6 +43,12 @@ class EarningsAnalysisResponse(BaseModel):
     strategic_catalysts: List[str] = []
     source_citations: List[CitationItem] = []
     raw_grounded_text: Optional[str] = None
+    # Evidence behind the sentiment + confidence call
+    sentiment_rationale: Optional[str] = None
+    filing_signal: Optional[str] = None
+    news_signal: Optional[str] = None
+    sentiment_evidence: List[SentimentEvidenceItem] = []
+    news_articles: List[NewsArticleItem] = []
     pipeline_metadata: Dict[str, Any] = {}
 
 # --- News Routing Models ---

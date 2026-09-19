@@ -312,6 +312,229 @@ Perform deep structural quantitative analysis and output the exact JSON format i
 
 
 # -------------------------------------------------------------
+# 1b. Evidence-Based Sentiment & Confidence Assessment
+# -------------------------------------------------------------
+
+_SENTIMENT_SYSTEM_PROMPT = """You are NVIDIA Nemotron Equity Sentiment Engine.
+
+You are given two independent bodies of evidence about one company:
+  (A) its most recent earnings report / SEC filing material, and
+  (B) recent online articles written about the company.
+
+Judge the company's sentiment from BOTH bodies, then state how confident that
+judgement is. Cite only evidence that actually appears in the material provided;
+never invent a headline, a number, or a source.
+
+CONFIDENCE RUBRIC — the confidence is about the strength of the evidence, not
+about how strong the company looks. Follow it literally:
+  0.90 - 0.97  Filings and articles clearly agree, and reported metrics are unambiguous.
+  0.75 - 0.89  Both sources point the same way, but some figures or commentary are vague.
+  0.55 - 0.74  Only one of the two evidence bodies is informative, or the articles are thin.
+  0.35 - 0.54  Filings and articles conflict, or the evidence is mostly generic commentary.
+  0.10 - 0.34  Almost no usable evidence about this company's actual performance.
+Never output a confidence above 0.97, and never round to a marketing number.
+
+You MUST output valid JSON only inside a ```json ``` code block, with no text outside it.
+
+Required JSON structure:
+{
+  "executive_sentiment": "Bullish" | "Neutral" | "Bearish",
+  "sentiment_confidence": 0.00,
+  "filing_signal": "Bullish" | "Neutral" | "Bearish",
+  "news_signal": "Bullish" | "Neutral" | "Bearish",
+  "sentiment_rationale": "1-2 sentences naming the concrete evidence that decided the call and why the confidence is where it is.",
+  "evidence": [
+    {
+      "source_type": "Earnings report" | "Article",
+      "label": "Short name of the document or the article headline",
+      "signal": "Bullish" | "Neutral" | "Bearish",
+      "detail": "The specific figure or statement that carries this signal"
+    }
+  ]
+}
+Return between 3 and 6 evidence entries, drawn from BOTH bodies when both are available."""
+
+
+def _sentiment_score(label: str) -> int:
+    s = _normalize_sentiment(label)
+    return {"Bullish": 1, "Bearish": -1}.get(s, 0)
+
+
+def _heuristic_sentiment(metrics: List[Dict[str, Any]], articles: List[Dict[str, str]]) -> Dict[str, Any]:
+    """
+    Deterministic evidence-weighted fallback used only when every model provider
+    is unreachable. Scores reported beats/misses against article language so the
+    number still reflects the retrieved evidence rather than a fixed constant.
+    """
+    beats = sum(1 for m in metrics if str(m.get("beat_status", "")).lower() == "beat")
+    misses = sum(1 for m in metrics if str(m.get("beat_status", "")).lower() == "miss")
+    filing_score = beats - misses
+
+    bull_words = ("beat", "record", "surge", "rally", "upgrade", "raises", "jump", "growth", "strong", "tops")
+    bear_words = ("miss", "cut", "slump", "plunge", "downgrade", "lawsuit", "probe", "warns", "weak", "falls")
+    news_score = 0
+    for a in articles:
+        text = f"{a.get('title', '')} {a.get('summary', '')}".lower()
+        news_score += sum(1 for w in bull_words if w in text)
+        news_score -= sum(1 for w in bear_words if w in text)
+
+    def to_label(score: int) -> str:
+        if score > 0:
+            return "Bullish"
+        if score < 0:
+            return "Bearish"
+        return "Neutral"
+
+    filing_signal = to_label(filing_score)
+    news_signal = to_label(news_score)
+    combined = to_label(filing_score + (1 if news_score > 0 else -1 if news_score < 0 else 0))
+
+    # Confidence grows with evidence volume, shrinks when the two sources disagree.
+    confidence = 0.30
+    if metrics:
+        confidence += min(len(metrics), 4) * 0.05
+    if articles:
+        confidence += min(len(articles), 6) * 0.04
+    if filing_signal != "Neutral" and filing_signal == news_signal:
+        confidence += 0.12
+    elif "Neutral" not in (filing_signal, news_signal) and filing_signal != news_signal:
+        confidence -= 0.10
+
+    evidence = [
+        {
+            "source_type": "Earnings report",
+            "label": m.get("metric", "Reported metric"),
+            "signal": "Bullish" if str(m.get("beat_status", "")).lower() == "beat"
+                      else "Bearish" if str(m.get("beat_status", "")).lower() == "miss" else "Neutral",
+            "detail": f"{m.get('value', 'N/A')} vs consensus {m.get('consensus', 'N/A')}",
+        }
+        for m in metrics[:3]
+    ]
+    evidence += [
+        {
+            "source_type": "Article",
+            "label": a.get("title", "Recent article"),
+            "signal": "Neutral",
+            "detail": a.get("publisher", "Online coverage"),
+        }
+        for a in articles[:3]
+    ]
+
+    return {
+        "executive_sentiment": combined,
+        "sentiment_confidence": round(max(0.10, min(confidence, 0.80)), 2),
+        "filing_signal": filing_signal,
+        "news_signal": news_signal,
+        "sentiment_rationale": (
+            f"Model providers were unreachable, so this call was scored directly from "
+            f"{len(metrics)} reported metric(s) and {len(articles)} recent article(s). "
+            f"Confidence is capped accordingly."
+        ),
+        "evidence": evidence,
+        "method": "heuristic",
+    }
+
+
+def assess_sentiment_from_evidence(
+    company_name: str,
+    ticker: str,
+    quarter: str,
+    earnings_text: str,
+    articles: List[Dict[str, str]],
+    metrics: List[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Asks Nemotron to derive executive sentiment AND its confidence from the
+    recent earnings report combined with recent online articles about the
+    company, then applies deterministic guards so the confidence can never
+    claim more certainty than the retrieved evidence supports.
+    """
+    from app.services.market_news_service import format_articles_for_prompt
+
+    metrics = metrics or []
+    articles = articles or []
+
+    metrics_block = "\n".join(
+        f"- {m.get('metric', 'Metric')}: reported {m.get('value', 'N/A')} vs consensus "
+        f"{m.get('consensus', 'N/A')} ({m.get('beat_status', 'N/A')})"
+        for m in metrics
+    ) or "No structured metrics were extracted."
+
+    user_prompt = f"""Company: {company_name} ({ticker}) — reporting period {quarter}
+
+(A) RECENT EARNINGS REPORT / SEC FILING MATERIAL
+---
+{earnings_text[:14000]}
+---
+
+Reported metrics extracted from that material:
+{metrics_block}
+
+(B) RECENT ONLINE ARTICLES ABOUT THIS COMPANY ({len(articles)} retrieved)
+---
+{format_articles_for_prompt(articles)}
+---
+
+Weigh (A) and (B) together and output the exact JSON structure in a ```json ``` code block."""
+
+    try:
+        raw_output = _call_nemotron_or_fallback(_SENTIMENT_SYSTEM_PROMPT, user_prompt)
+        parsed = _clean_json_response(raw_output)
+        parsed["method"] = "nemotron"
+    except Exception as e:
+        logger.error(f"Nemotron sentiment assessment failed: {e}. Falling back to evidence-weighted scoring.")
+        parsed = _heuristic_sentiment(metrics, articles)
+
+    # Normalize labels
+    parsed["executive_sentiment"] = _normalize_sentiment(parsed.get("executive_sentiment", "Neutral"))
+    parsed["filing_signal"] = _normalize_sentiment(parsed.get("filing_signal", parsed["executive_sentiment"]))
+    parsed["news_signal"] = _normalize_sentiment(parsed.get("news_signal", "Neutral"))
+
+    # Normalize confidence: accept 0-1 or 0-100, then clamp.
+    try:
+        confidence = float(parsed.get("sentiment_confidence", 0.6))
+    except (TypeError, ValueError):
+        confidence = 0.6
+    if confidence > 1.0:
+        confidence = confidence / 100.0
+    confidence = max(0.05, min(confidence, 0.97))
+
+    # Evidence guards — a confident number requires evidence on both sides.
+    if not articles:
+        confidence = min(confidence, 0.75)
+    elif len(articles) < 3:
+        confidence = min(confidence, 0.85)
+    if not metrics and len(earnings_text.strip()) < 400:
+        confidence = min(confidence, 0.60)
+    if "Neutral" not in (parsed["filing_signal"], parsed["news_signal"]) and \
+            parsed["filing_signal"] != parsed["news_signal"]:
+        confidence = min(confidence, 0.62)
+
+    parsed["sentiment_confidence"] = round(confidence, 2)
+
+    # Keep evidence entries well-formed for the UI
+    clean_evidence = []
+    for item in (parsed.get("evidence") or [])[:6]:
+        if not isinstance(item, dict):
+            continue
+        clean_evidence.append({
+            "source_type": str(item.get("source_type", "Evidence"))[:40],
+            "label": str(item.get("label", "Evidence"))[:200],
+            "signal": _normalize_sentiment(item.get("signal", "Neutral")),
+            "detail": str(item.get("detail", ""))[:300],
+        })
+    parsed["evidence"] = clean_evidence
+
+    parsed["evidence_counts"] = {
+        "articles": len(articles),
+        "metrics": len(metrics),
+        "earnings_chars": len(earnings_text or ""),
+    }
+
+    return parsed
+
+
+# -------------------------------------------------------------
 # 2. News & Signal Impact Router
 # -------------------------------------------------------------
 

@@ -11,7 +11,16 @@ const FALLBACK_EARNINGS_DATABASE = {
     ticker: "AAPL",
     quarter: "Q3 2026",
     executive_sentiment: "Bullish",
-    sentiment_confidence: 0.94,
+    sentiment_confidence: 0.91,
+    filing_signal: "Bullish",
+    news_signal: "Bullish",
+    sentiment_rationale: "Revenue and EPS both cleared consensus and Services set an all-time record, while recent coverage is dominated by price-target raises on iPhone demand. Confidence is held below the top band because this dossier is served offline without live article retrieval.",
+    sentiment_evidence: [
+      { source_type: "Earnings report", label: "Q3 FY2026 revenue vs consensus", signal: "Bullish", detail: "$94.80B reported vs $93.10B consensus (+7.2% YoY)" },
+      { source_type: "Earnings report", label: "Services revenue", signal: "Bullish", detail: "All-time record $28.40B, margin 74.8%" },
+      { source_type: "Earnings report", label: "EU Digital Markets Act compliance", signal: "Bearish", detail: "Ongoing regulatory scrutiny of app store fee structures" },
+      { source_type: "Article", label: "Apple Services surge sets Q3 record as on-device AI expands", signal: "Bullish", detail: "Bloomberg" }
+    ],
     executive_summary: "Apple reported quarterly revenue of $94.8 billion, up 7.2% year-over-year, propelled by an all-time record in Services revenue ($28.4 billion) and accelerating device refresh demand driven by Apple Intelligence v2 adoption across the active installed base.",
     metrics: [
       { metric: "Total Revenue", value: "$94.80B", consensus: "$93.10B", beat_status: "Beat", notes: "+7.2% YoY acceleration" },
@@ -48,7 +57,16 @@ const FALLBACK_EARNINGS_DATABASE = {
     ticker: "NVDA",
     quarter: "Q2 FY2026",
     executive_sentiment: "Bullish",
-    sentiment_confidence: 0.96,
+    sentiment_confidence: 0.93,
+    filing_signal: "Bullish",
+    news_signal: "Bullish",
+    sentiment_rationale: "Record Data Center revenue, a 68% YoY top-line beat and guidance above consensus all point the same way, and recent coverage echoes the Blackwell Ultra ramp. Confidence is held below the top band because this dossier is served offline without live article retrieval.",
+    sentiment_evidence: [
+      { source_type: "Earnings report", label: "Q2 FY2026 revenue vs consensus", signal: "Bullish", detail: "$42.50B reported vs $40.80B consensus (+68% YoY)" },
+      { source_type: "Earnings report", label: "Forward guidance", signal: "Bullish", detail: "Q3 guided to $46.0B vs $44.2B consensus" },
+      { source_type: "Earnings report", label: "Customer concentration", signal: "Bearish", detail: "Tier-1 cloud providers represent a large share of Data Center revenue" },
+      { source_type: "Article", label: "Nvidia beats Q2 forecasts on Blackwell Ultra scale, expands $60B buyback", signal: "Bullish", detail: "Reuters" }
+    ],
     executive_summary: "NVIDIA delivered record quarterly revenue of $42.5 billion, up 68% from a year ago, with Data Center revenue reaching $37.2 billion (+74% YoY). CEO Jensen Huang highlighted unprecedented demand for Blackwell Ultra and sovereign AI deployments.",
     metrics: [
       { metric: "Total Revenue", value: "$42.50B", consensus: "$40.80B", beat_status: "Beat", notes: "+68% YoY surge" },
@@ -91,6 +109,7 @@ const TabEarnings = () => {
   const [error, setError] = useState(null);
   const [isOfflineFallback, setIsOfflineFallback] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showArticles, setShowArticles] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [edgarSuggestions, setEdgarSuggestions] = useState([]);
   const [isSearchingEdgar, setIsSearchingEdgar] = useState(false);
@@ -239,7 +258,14 @@ const TabEarnings = () => {
       ticker: companyTitle.slice(0, 4).toUpperCase(),
       quarter: "Latest Fiscal Quarter",
       executive_sentiment: "Bullish",
-      sentiment_confidence: 0.88,
+      sentiment_confidence: 0.62,
+      filing_signal: "Bullish",
+      news_signal: "Neutral",
+      sentiment_rationale: `No live filings or articles could be retrieved for "${searchQuery}", so this call rests on a generic dossier only. Confidence is deliberately low until the live pipeline returns.`,
+      sentiment_evidence: [
+        { source_type: "Earnings report", label: "Reported revenue vs consensus", signal: "Bullish", detail: "$42.50B vs $41.20B consensus" },
+        { source_type: "Earnings report", label: "FX exposure", signal: "Bearish", detail: "~150 bps drag on international revenue growth" }
+      ],
       executive_summary: `Comprehensive financial analysis synthesized for "${searchQuery}". Robust quarterly performance with steady revenue expansion, balanced operating expenditures, and resilient forward guidance.`,
       metrics: [
         { metric: "Total Net Sales", value: "$42.50B", consensus: "$41.20B", beat_status: "Beat", notes: "+8.4% YoY" },
@@ -278,20 +304,24 @@ const TabEarnings = () => {
     setLoading(true);
     setError(null);
     setIsOfflineFallback(false);
-    setPipelineStage('Stage 1/2: Triggering Gemini Grounded Google Search for live filings & earnings call text...');
+    setShowArticles(false);
+    setPipelineStage('Stage 1/3: Pulling the latest SEC earnings filings and recent online articles about the company...');
+
+    const stageTimers = [
+      setTimeout(() => {
+        setPipelineStage('Stage 2/3: Streaming filings + article coverage to NVIDIA Nemotron NIM for financial risk reasoning...');
+      }, 1200),
+      setTimeout(() => {
+        setPipelineStage('Stage 3/3: Nemotron scoring executive sentiment and confidence against both evidence sources...');
+      }, 4000),
+    ];
 
     try {
-      const timer = setTimeout(() => {
-        setPipelineStage('Stage 2/2: Streaming grounded dossier to NVIDIA Nemotron NIM for deep financial risk reasoning...');
-      }, 1200);
-
       const res = await fetch('/api/fetch-and-analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q })
       });
-
-      clearTimeout(timer);
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -307,6 +337,7 @@ const TabEarnings = () => {
       setResult(fallbackData);
       setIsOfflineFallback(true);
     } finally {
+      stageTimers.forEach(clearTimeout);
       setLoading(false);
       setPipelineStage('');
     }
@@ -336,6 +367,18 @@ const TabEarnings = () => {
         <span>Neutral / Balanced Guidance</span>
       </div>
     );
+  };
+
+  // Small colored chip for a per-evidence-item signal
+  const getSignalChip = (signal = 'Neutral') => {
+    const s = (signal || '').toLowerCase();
+    if (s.includes('bull')) {
+      return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Bullish</span>;
+    }
+    if (s.includes('bear')) {
+      return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/30">Bearish</span>;
+    }
+    return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-800 text-slate-300 border border-slate-700">Neutral</span>;
   };
 
   const getBeatBadge = (status = '') => {
@@ -624,6 +667,7 @@ const TabEarnings = () => {
                   <div className="text-lg font-mono font-bold text-cyan-400">
                     {Math.round((result.sentiment_confidence || 0.9) * 100)}%
                   </div>
+                  <div className="text-[10px] text-slate-500">filings + articles</div>
                 </div>
                 <div className="h-10 w-px bg-slate-800 hidden sm:block" />
                 <button
@@ -635,6 +679,124 @@ const TabEarnings = () => {
                   Clear
                 </button>
               </div>
+            </div>
+
+            {/* How Nemotron scored the sentiment & confidence */}
+            <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center space-x-1.5">
+                  <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>How this call was scored</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <span className="px-2 py-0.5 rounded-md bg-cyan-950/70 text-cyan-300 border border-cyan-800/70 font-semibold">
+                    {result.pipeline_metadata?.metrics_analyzed ?? result.metrics?.length ?? 0} reported metrics
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-950/60 text-amber-300 border border-amber-800/60 font-semibold">
+                    {result.pipeline_metadata?.articles_analyzed ?? result.news_articles?.length ?? 0} recent articles
+                  </span>
+                  {result.pipeline_metadata?.sentiment_method === 'heuristic' && (
+                    <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
+                      Scored offline (model unavailable)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Confidence bar + the two independent signals */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-1">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Confidence in this call</span>
+                    <span className="text-xs font-mono font-bold text-cyan-400">
+                      {Math.round((result.sentiment_confidence || 0) * 100)}%
+                    </span>
+                  </div>
+                  <div className="mt-1.5 w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-700 ${
+                        result.sentiment_confidence >= 0.85 ? 'bg-emerald-400'
+                          : result.sentiment_confidence >= 0.65 ? 'bg-cyan-400' : 'bg-amber-400'
+                      }`}
+                      style={{ width: `${Math.round((result.sentiment_confidence || 0) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="md:col-span-2 flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-slate-950/70 border border-slate-800">
+                    <FileText className="h-3 w-3 text-cyan-400" />
+                    <span className="text-slate-400">Earnings report:</span>
+                    {getSignalChip(result.filing_signal || result.executive_sentiment)}
+                  </span>
+                  <span className="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-slate-950/70 border border-slate-800">
+                    <Globe className="h-3 w-3 text-amber-400" />
+                    <span className="text-slate-400">Online articles:</span>
+                    {getSignalChip(result.news_signal || 'Neutral')}
+                  </span>
+                </div>
+              </div>
+
+              {result.sentiment_rationale && (
+                <p className="text-xs text-slate-300 leading-relaxed">{result.sentiment_rationale}</p>
+              )}
+
+              {/* The specific evidence behind the call */}
+              {result.sentiment_evidence?.length > 0 && (
+                <ul className="space-y-1.5 pt-1">
+                  {result.sentiment_evidence.map((ev, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-xs">
+                      <span className={`mt-0.5 shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                        (ev.source_type || '').toLowerCase().includes('article')
+                          ? 'bg-amber-950/50 text-amber-300 border-amber-800/60'
+                          : 'bg-cyan-950/50 text-cyan-300 border-cyan-800/60'
+                      }`}>
+                        {(ev.source_type || '').toLowerCase().includes('article') ? 'Article' : 'Filing'}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="text-slate-200 font-medium">{ev.label}</span>
+                        {ev.detail && <span className="text-slate-400"> — {ev.detail}</span>}
+                      </span>
+                      <span className="shrink-0">{getSignalChip(ev.signal)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* The articles that were read */}
+              {result.news_articles?.length > 0 && (
+                <div className="pt-2 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setShowArticles(v => !v)}
+                    className="text-[11px] font-semibold text-slate-400 hover:text-cyan-300 flex items-center space-x-1 cursor-pointer transition-colors"
+                  >
+                    <BookOpen className="h-3 w-3" />
+                    <span>{showArticles ? 'Hide' : 'Show'} the {result.news_articles.length} articles Nemotron read</span>
+                  </button>
+
+                  {showArticles && (
+                    <ul className="mt-2 space-y-1.5">
+                      {result.news_articles.map((a, idx) => (
+                        <li key={idx} className="text-xs">
+                          <a
+                            href={a.url || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-300 hover:text-cyan-300 transition-colors inline-flex items-start gap-1.5"
+                          >
+                            <ArrowUpRight className="h-3 w-3 mt-0.5 shrink-0 text-cyan-400" />
+                            <span>
+                              {a.title}
+                              <span className="text-slate-500"> — {a.publisher || 'Online coverage'}</span>
+                            </span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Executive Synthesis */}

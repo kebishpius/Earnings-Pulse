@@ -1,10 +1,15 @@
+import asyncio
 import logging
 import time
 from fastapi import APIRouter, HTTPException, Query
-from app.schemas.models import FetchAndAnalyzeRequest, EarningsAnalysisResponse, MetricItem, CitationItem
+from app.schemas.models import (
+    FetchAndAnalyzeRequest, EarningsAnalysisResponse, MetricItem, CitationItem,
+    SentimentEvidenceItem, NewsArticleItem
+)
 from app.services.gemini_service import fetch_live_earnings_data
-from app.services.nemotron_service import analyze_earnings_transcript
+from app.services.nemotron_service import analyze_earnings_transcript, assess_sentiment_from_evidence
 from app.services.edgar_service import search_edgar_companies, resolve_company_from_query, fetch_edgar_2026_dossier
+from app.services.market_news_service import fetch_company_articles, format_articles_for_prompt
 from app.config import NVIDIA_MODEL
 
 logger = logging.getLogger(__name__)
@@ -42,7 +47,21 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
         except Exception as e:
             logger.warning(f"Error fetching SEC EDGAR dossier: {e}")
 
-    # Step 1B: Gemini Live Retrieval with Google Search Grounding
+    # Step 1B: Recent online articles about the company — the second body of
+    # evidence Nemotron weighs when scoring sentiment and confidence.
+    articles = []
+    try:
+        articles = fetch_company_articles(
+            ticker=(edgar_company or {}).get("ticker", ""),
+            company_name=(edgar_company or {}).get("title", ""),
+            query=query,
+            limit=8
+        )
+    except Exception as e:
+        logger.warning(f"Error fetching online articles: {e}")
+
+    # Step 1C: Gemini Live Retrieval with Google Search Grounding
+    gemini_result = {}
     try:
         gemini_result = fetch_live_earnings_data(query)
         grounded_text = gemini_result.get("text", "")
@@ -72,12 +91,68 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
 
     citations = list(citations_dict.values())
 
-    # Step 2: NVIDIA Nemotron Deep Financial & Risk Extraction
-    try:
-        nemotron_analysis = analyze_earnings_transcript(grounded_text, query)
-    except Exception as e:
-        logger.error(f"Error in Nemotron earnings analysis: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis pipeline error: {str(e)}")
+    # Earnings material and article coverage are kept separate so the sentiment
+    # pass can weigh them against each other, then combined for the main analysis.
+    earnings_text = grounded_text
+    combined_context = (
+        f"{earnings_text}\n\n"
+        f"RECENT ONLINE ARTICLES ABOUT THIS COMPANY ({len(articles)} retrieved):\n"
+        f"{format_articles_for_prompt(articles)}"
+    )
+
+    # Metrics already known from the official XBRL facts, so the sentiment pass
+    # can weigh reported figures without waiting on the extraction pass.
+    prelim_metrics = []
+    if edgar_dossier and edgar_dossier.get("xbrl_metrics"):
+        xm_pre = edgar_dossier["xbrl_metrics"]
+        if xm_pre.get("revenue") and xm_pre["revenue"].get("value"):
+            prelim_metrics.append({
+                "metric": "Reported Net Sales",
+                "value": f"${xm_pre['revenue']['value'] / 1e9:.2f}B",
+                "consensus": "N/A",
+                "beat_status": "N/A",
+            })
+        if xm_pre.get("eps") and xm_pre["eps"].get("value") is not None:
+            prelim_metrics.append({
+                "metric": "Diluted EPS",
+                "value": f"${xm_pre['eps']['value']:.2f}",
+                "consensus": "N/A",
+                "beat_status": "Beat" if xm_pre["eps"]["value"] > 0 else "Miss",
+            })
+
+    # Step 2: NVIDIA Nemotron — financial extraction and evidence-based sentiment.
+    # When EDGAR already identified the company both passes run concurrently;
+    # otherwise the ticker (and therefore the articles) is only known after the
+    # extraction pass, so the sentiment pass has to wait for it.
+    sentiment_args = {
+        "company_name": (edgar_dossier or {}).get("company_name") or query.title(),
+        "ticker": (edgar_dossier or {}).get("ticker") or (request.ticker or ""),
+        "quarter": (edgar_dossier or {}).get("quarter") or "FY2026",
+        "earnings_text": earnings_text,
+        "articles": articles,
+        "metrics": prelim_metrics,
+    }
+
+    if edgar_company and articles:
+        analysis_result, sentiment = await asyncio.gather(
+            asyncio.to_thread(analyze_earnings_transcript, combined_context, query),
+            asyncio.to_thread(lambda: assess_sentiment_from_evidence(**sentiment_args)),
+            return_exceptions=True,
+        )
+        if isinstance(analysis_result, Exception):
+            logger.error(f"Error in Nemotron earnings analysis: {analysis_result}")
+            raise HTTPException(status_code=500, detail=f"Analysis pipeline error: {analysis_result}")
+        nemotron_analysis = analysis_result
+        if isinstance(sentiment, Exception):
+            logger.error(f"Sentiment pass failed: {sentiment}")
+            sentiment = None
+    else:
+        try:
+            nemotron_analysis = await asyncio.to_thread(analyze_earnings_transcript, combined_context, query)
+        except Exception as e:
+            logger.error(f"Error in Nemotron earnings analysis: {e}")
+            raise HTTPException(status_code=500, detail=f"Analysis pipeline error: {str(e)}")
+        sentiment = None
 
     # Parse metrics into Pydantic models
     raw_metrics = nemotron_analysis.get("metrics", [])
@@ -120,6 +195,32 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
     ticker = edgar_dossier["ticker"] if edgar_dossier else nemotron_analysis.get("ticker", request.ticker or query.upper()[:5])
     quarter = edgar_dossier["quarter"] if edgar_dossier else nemotron_analysis.get("quarter", "FY2026")
 
+    # Deferred path: the ticker is only known now, so pull the articles and
+    # score sentiment against the earnings material and that coverage together.
+    if sentiment is None:
+        if not articles and ticker:
+            try:
+                articles = fetch_company_articles(ticker=ticker, company_name=company_name, query=query, limit=8)
+            except Exception as e:
+                logger.warning(f"Retry of online article fetch failed: {e}")
+
+        sentiment = await asyncio.to_thread(
+            lambda: assess_sentiment_from_evidence(
+                company_name=company_name,
+                ticker=ticker,
+                quarter=quarter,
+                earnings_text=earnings_text,
+                articles=articles,
+                metrics=[m.model_dump() for m in metrics],
+            )
+        )
+
+    logger.info(
+        f"Sentiment for {ticker}: {sentiment['executive_sentiment']} "
+        f"@ {sentiment['sentiment_confidence']} via {sentiment.get('method')} "
+        f"({len(articles)} articles, {len(metrics)} metrics)"
+    )
+
     # Ensure rich, structured primary citations are always present for the analyzed company
     tick_clean = ticker.upper().strip()
     primary_citations = [
@@ -145,10 +246,19 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
         )
     ]
 
+    # The articles Nemotron actually read are themselves citations
+    article_citations = [
+        CitationItem(
+            title=f"{a['title']} — {a.get('publisher', 'Online coverage')}",
+            uri=a.get("url") or "#"
+        )
+        for a in articles if a.get("url")
+    ]
+
     # Prepend primary official citations to web citations, avoiding duplicate URIs
     all_citations = []
     seen_uris = set()
-    for c in (primary_citations + citations):
+    for c in (primary_citations + article_citations + citations):
         if c.uri and c.uri != "#" and c.uri not in seen_uris:
             seen_uris.add(c.uri)
             all_citations.append(c)
@@ -159,20 +269,37 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
         company_name=company_name,
         ticker=ticker,
         quarter=quarter,
-        executive_sentiment=nemotron_analysis.get("executive_sentiment", "Bullish"),
-        sentiment_confidence=float(nemotron_analysis.get("sentiment_confidence", 0.92)),
+        executive_sentiment=sentiment["executive_sentiment"],
+        sentiment_confidence=float(sentiment["sentiment_confidence"]),
         executive_summary=nemotron_analysis.get("executive_summary", "Strong execution with sustained operational leverage."),
         metrics=metrics,
         hidden_risks=nemotron_analysis.get("hidden_risks", []),
         strategic_catalysts=nemotron_analysis.get("strategic_catalysts", []),
         source_citations=all_citations,
-        raw_grounded_text=grounded_text,
+        raw_grounded_text=combined_context,
+        sentiment_rationale=sentiment.get("sentiment_rationale"),
+        filing_signal=sentiment.get("filing_signal"),
+        news_signal=sentiment.get("news_signal"),
+        sentiment_evidence=[SentimentEvidenceItem(**e) for e in sentiment.get("evidence", [])],
+        news_articles=[
+            NewsArticleItem(
+                title=a["title"],
+                publisher=a.get("publisher"),
+                published=a.get("published"),
+                url=a.get("url"),
+                summary=a.get("summary"),
+            )
+            for a in articles
+        ],
         pipeline_metadata={
             "elapsed_ms": elapsed_ms,
             "gemini_provider": gemini_result.get("provider", "SEC EDGAR + Gemini 2.0 Flash Grounded"),
             "nemotron_model": f"NVIDIA Nemotron ({NVIDIA_MODEL})",
             "query": query,
-            "edgar_verified": bool(edgar_dossier and edgar_dossier.get("filings_2026"))
+            "edgar_verified": bool(edgar_dossier and edgar_dossier.get("filings_2026")),
+            "sentiment_method": sentiment.get("method", "nemotron"),
+            "articles_analyzed": len(articles),
+            "metrics_analyzed": len(metrics),
         }
     )
 
