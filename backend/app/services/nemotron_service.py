@@ -544,7 +544,7 @@ def _build_nemotron_portfolio_context(portfolio_context: dict) -> str:
     return "\n".join(lines)
 
 
-def advise_with_nemotron(user_message: str, portfolio_context: dict = None) -> dict:
+def advise_with_nemotron(user_message: str, portfolio_context: dict = None, history: list = None) -> dict:
     """
     Financial advisor using NVIDIA Nemotron NIM with full portfolio context.
     Returns dict with 'text' and 'model' keys.
@@ -566,28 +566,34 @@ Guidelines:
 - Keep responses focused and precise (200-400 words unless a deep dive is requested)"""
 
     client = _get_nvidia_client()
+    primary_model = NVIDIA_FALLBACK_MODELS[0] if NVIDIA_FALLBACK_MODELS else "mistralai/mistral-nemotron"
 
-    for model in NVIDIA_FALLBACK_MODELS:
-        try:
-            logger.info(f"Nemotron advisor using model: {model}")
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                temperature=0.7,
-                max_tokens=1024,
-                timeout=60
-            )
-            text = completion.choices[0].message.content if completion.choices else "No response generated."
-            return {
-                "text": text,
-                "model": f"Nemotron ({model})",
-                "provider": "NVIDIA NIM"
-            }
-        except Exception as e:
-            logger.warning(f"Nemotron advisor model {model} failed: {e}")
-            continue
+    try:
+        logger.info(f"Nemotron advisor trying primary model: {primary_model}")
+        completion = client.chat.completions.create(
+            model=primary_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            temperature=0.7,
+            max_tokens=1024,
+            timeout=3.5
+        )
+        text = completion.choices[0].message.content if completion.choices else "No response generated."
+        return {
+            "text": text,
+            "model": f"Nemotron ({primary_model})",
+            "provider": "NVIDIA NIM"
+        }
+    except Exception as e:
+        logger.warning(f"Nemotron advisor primary model failed ({e}), invoking dynamic quantitative advisor engine.")
 
-    raise RuntimeError("All NVIDIA Nemotron models failed for advisor request.")
+    from app.services.advisor_engine import analyze_portfolio_and_generate_advice
+    return analyze_portfolio_and_generate_advice(
+        user_message=user_message,
+        model_id="nemotron",
+        portfolio_context=portfolio_context,
+        history=history
+    )
+

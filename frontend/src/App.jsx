@@ -199,10 +199,18 @@ function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'earnings' && <TabEarnings />}
-        {activeTab === 'news' && <TabNews />}
-        {activeTab === 'portfolio' && <TabPortfolio />}
-        {activeTab === 'advisor' && <TabAdvisor />}
+        <div className={activeTab === 'earnings' ? 'block' : 'hidden'}>
+          <TabEarnings />
+        </div>
+        <div className={activeTab === 'news' ? 'block' : 'hidden'}>
+          <TabNews />
+        </div>
+        <div className={activeTab === 'portfolio' ? 'block' : 'hidden'}>
+          <TabPortfolio />
+        </div>
+        <div className={activeTab === 'advisor' ? 'block' : 'hidden'}>
+          <TabAdvisor />
+        </div>
       </main>
 
       {/* Persistent Bottom Status Bar */}

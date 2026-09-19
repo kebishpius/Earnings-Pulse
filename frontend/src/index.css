@@ -4,13 +4,18 @@
 
 :root {
   color-scheme: dark;
+  background-color: #070a12;
 }
 
-body {
-  background-color: #070a12;
+html,
+body,
+#root {
+  background-color: #070a12 !important;
   color: #f1f5f9;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
+  min-height: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Custom Financial Cyber / Glassmorphic Utility Classes */

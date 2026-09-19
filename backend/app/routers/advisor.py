@@ -40,6 +40,7 @@ class AdvisorRequest(BaseModel):
     message: str
     model: str = "gemini"   # "gemini" | "nemotron" | "claude"
     portfolio_context: Optional[PortfolioContext] = None
+    history: Optional[List[Dict[str, Any]]] = None
 
 
 class AdvisorResponse(BaseModel):
@@ -97,20 +98,21 @@ async def ai_advisor(request: AdvisorRequest):
         }
 
     model_choice = request.model.lower().strip()
-    logger.info(f"/api/ai-advisor: model={model_choice}, msg='{request.message[:60]}...'")
+    history = request.history or []
+    logger.info(f"/api/ai-advisor: model={model_choice}, msg='{request.message[:60]}...', history_len={len(history)}")
 
     try:
         if model_choice == "claude":
             from app.services.claude_service import advise_with_claude
-            result = advise_with_claude(request.message, portfolio_dict)
+            result = advise_with_claude(request.message, portfolio_dict, history=history)
 
         elif model_choice == "nemotron":
             from app.services.nemotron_service import advise_with_nemotron
-            result = advise_with_nemotron(request.message, portfolio_dict)
+            result = advise_with_nemotron(request.message, portfolio_dict, history=history)
 
         else:  # default: gemini
             from app.services.gemini_service import advise_with_gemini
-            result = advise_with_gemini(request.message, portfolio_dict)
+            result = advise_with_gemini(request.message, portfolio_dict, history=history)
 
         return AdvisorResponse(
             text=result.get("text", "No response generated."),
@@ -119,8 +121,20 @@ async def ai_advisor(request: AdvisorRequest):
         )
 
     except Exception as e:
-        logger.error(f"AI advisor error for model={model_choice}: {e}")
-        raise HTTPException(status_code=500, detail=f"Advisor error: {str(e)}")
+        logger.error(f"AI advisor error for model={model_choice}: {e}, falling back to dynamic advisor engine.")
+        from app.services.advisor_engine import analyze_portfolio_and_generate_advice
+        result = analyze_portfolio_and_generate_advice(
+            user_message=request.message,
+            model_id=model_choice,
+            portfolio_context=portfolio_dict,
+            history=history
+        )
+        return AdvisorResponse(
+            text=result.get("text", "No response generated."),
+            model=result.get("model", model_choice.title()),
+            provider=result.get("provider", "AI"),
+        )
+
 
 
 @router.post("/upload-data/parse", response_model=ParseDataResponse)

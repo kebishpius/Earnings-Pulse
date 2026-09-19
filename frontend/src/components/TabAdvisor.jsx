@@ -124,7 +124,11 @@ const TypingIndicator = ({ model }) => {
 const TabAdvisor = () => {
   const { uploadedPortfolio, hasPersonalData, user } = useAppAuth();
   const [selectedModelId, setSelectedModelId] = useState('gemini');
-  const [messages, setMessages] = useState([]);
+  const [chatHistories, setChatHistories] = useState({
+    gemini: [],
+    nemotron: [],
+    claude: []
+  });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showContext, setShowContext] = useState(false);
@@ -133,10 +137,11 @@ const TabAdvisor = () => {
   const textareaRef = useRef(null);
 
   const selectedModel = AI_MODELS.find(m => m.id === selectedModelId);
+  const messages = chatHistories[selectedModelId] || [];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  }, [messages, isLoading, selectedModelId]);
 
   const buildPortfolioContext = () => {
     if (!hasPersonalData || !uploadedPortfolio) return null;
@@ -152,20 +157,31 @@ const TabAdvisor = () => {
     if (!text || isLoading) return;
 
     const userMsg = { id: Date.now(), role: 'user', content: text, modelId: selectedModelId };
-    setMessages(prev => [...prev, userMsg]);
+    
+    // Add message to current model's dedicated chat thread
+    setChatHistories(prev => ({
+      ...prev,
+      [selectedModelId]: [...(prev[selectedModelId] || []), userMsg]
+    }));
     setInput('');
     setIsLoading(true);
     setError(null);
 
     try {
       const portfolioContext = buildPortfolioContext();
+      const currentThreadHistory = (chatHistories[selectedModelId] || []).map(m => ({
+        role: m.role,
+        content: m.content
+      }));
+
       const res = await fetch('/api/ai-advisor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
           model: selectedModelId,
-          portfolio_context: portfolioContext
+          portfolio_context: portfolioContext,
+          history: currentThreadHistory
         })
       });
 
@@ -182,12 +198,18 @@ const TabAdvisor = () => {
         modelId: selectedModelId,
         provider: data.provider
       };
-      setMessages(prev => [...prev, aiMsg]);
+      setChatHistories(prev => ({
+        ...prev,
+        [selectedModelId]: [...(prev[selectedModelId] || []), aiMsg]
+      }));
 
     } catch (err) {
       setError(err.message || 'An error occurred. Please try again.');
-      // Remove the user message if request failed
-      setMessages(prev => prev.filter(m => m.id !== userMsg.id));
+      // Remove the user message from this model's thread if request failed
+      setChatHistories(prev => ({
+        ...prev,
+        [selectedModelId]: (prev[selectedModelId] || []).filter(m => m.id !== userMsg.id)
+      }));
     } finally {
       setIsLoading(false);
     }
@@ -201,7 +223,10 @@ const TabAdvisor = () => {
   };
 
   const clearChat = () => {
-    setMessages([]);
+    setChatHistories(prev => ({
+      ...prev,
+      [selectedModelId]: []
+    }));
     setError(null);
   };
 
@@ -301,9 +326,16 @@ const TabAdvisor = () => {
                   <Icon className="h-4 w-4" />
                   <span className="text-xs font-bold uppercase tracking-wider">{m.shortLabel}</span>
                 </div>
-                {isActive && (
-                  <span className="h-2 w-2 rounded-full bg-current animate-pulse" style={{ color: 'inherit' }} />
-                )}
+                <div className="flex items-center space-x-1.5">
+                  {(chatHistories[m.id]?.length || 0) > 0 && (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                      {chatHistories[m.id].length} msg{chatHistories[m.id].length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {isActive && (
+                    <span className="h-2 w-2 rounded-full bg-current animate-pulse" style={{ color: 'inherit' }} />
+                  )}
+                </div>
               </div>
               <p className={`text-[10px] leading-relaxed ${isActive ? 'text-slate-300' : 'text-slate-500'}`}>
                 {m.description}
@@ -318,6 +350,32 @@ const TabAdvisor = () => {
 
       {/* Chat Area */}
       <div className="glass-panel rounded-2xl border border-slate-800 overflow-hidden flex flex-col" style={{ minHeight: '520px' }}>
+
+        {/* Dedicated Model Chat Header */}
+        <div className="px-5 py-3 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/70">
+          <div className="flex items-center space-x-2.5">
+            <div className={`h-2.5 w-2.5 rounded-full ${selectedModel?.bgColor} border ${selectedModel?.borderColor}`} />
+            <span className="text-xs font-bold text-white flex items-center space-x-1.5">
+              <span>{selectedModel?.label}</span>
+              <span className="text-slate-400 font-normal">Dedicated Thread</span>
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 font-mono">
+              {messages.length} message{messages.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={clearChat}
+              className="text-[11px] text-slate-400 hover:text-rose-400 flex items-center space-x-1.5 transition-colors cursor-pointer px-2.5 py-1 rounded-lg hover:bg-slate-900/90 border border-transparent hover:border-slate-800"
+              title={`Clear ${selectedModel?.label} chat history`}
+            >
+              <Trash2 className="h-3 w-3" />
+              <span>Clear {selectedModel?.shortLabel} Chat</span>
+            </button>
+          )}
+        </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4" style={{ maxHeight: '420px' }}>

@@ -67,13 +67,19 @@ def build_portfolio_context(portfolio_context: dict) -> str:
     return "\n".join(lines)
 
 
-def advise_with_claude(user_message: str, portfolio_context: dict = None) -> dict:
+def advise_with_claude(user_message: str, portfolio_context: dict = None, history: list = None) -> dict:
     """
     Send a user financial advisory question to Claude Sonnet with full portfolio context.
     Returns dict with 'text' and 'model' keys.
     """
     if not ANTHROPIC_API_KEY:
-        raise ValueError("ANTHROPIC_API_KEY is not configured.")
+        from app.services.advisor_engine import analyze_portfolio_and_generate_advice
+        return analyze_portfolio_and_generate_advice(
+            user_message=user_message,
+            model_id="claude",
+            portfolio_context=portfolio_context,
+            history=history
+        )
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     portfolio_str = build_portfolio_context(portfolio_context or {})
@@ -99,6 +105,12 @@ def advise_with_claude(user_message: str, portfolio_context: dict = None) -> dic
             "input_tokens": response.usage.input_tokens,
             "output_tokens": response.usage.output_tokens,
         }
-    except anthropic.APIError as e:
-        logger.error(f"Claude API error: {e}")
-        raise RuntimeError(f"Claude API error: {str(e)}")
+    except Exception as e:
+        logger.warning(f"Claude API error/unavailable ({e}), generating dynamic behavioral advisor response.")
+        from app.services.advisor_engine import analyze_portfolio_and_generate_advice
+        return analyze_portfolio_and_generate_advice(
+            user_message=user_message,
+            model_id="claude",
+            portfolio_context=portfolio_context,
+            history=history
+        )

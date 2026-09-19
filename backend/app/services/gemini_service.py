@@ -271,7 +271,7 @@ def _build_portfolio_context_str(portfolio_context: dict) -> str:
     return "\n".join(lines)
 
 
-def advise_with_gemini(user_message: str, portfolio_context: dict = None) -> dict:
+def advise_with_gemini(user_message: str, portfolio_context: dict = None, history: list = None) -> dict:
     """
     Financial advisor chat using Gemini 2.0 Flash with user portfolio context.
     Does NOT use web grounding — pure reasoning mode for personal advice.
@@ -296,7 +296,13 @@ Provide your expert financial advisory response:"""
 
     has_key = bool(GEMINI_API_KEY and GEMINI_API_KEY.strip() and not GEMINI_API_KEY.startswith("dummy"))
     if not has_key:
-        raise ValueError("GEMINI_API_KEY is not configured.")
+        from app.services.advisor_engine import analyze_portfolio_and_generate_advice
+        return analyze_portfolio_and_generate_advice(
+            user_message=user_message,
+            model_id="gemini",
+            portfolio_context=portfolio_context,
+            history=history
+        )
 
     try:
         from google import genai
@@ -318,34 +324,14 @@ Provide your expert financial advisory response:"""
             "provider": "Google Gemini"
         }
     except Exception as e:
-        logger.warning(f"Gemini API request failed ({e}), generating grounded fallback advisory response.")
-        holdings = (portfolio_context or {}).get("holdings", [])
-        total_val = sum(h.get("current_value", 0) for h in holdings)
-        top_holdings = sorted(holdings, key=lambda x: x.get("current_value", 0), reverse=True)[:3]
-        top_str = ", ".join(f"{h.get('symbol')} ({h.get('allocation_pct', 0)}%)" for h in top_holdings) if top_holdings else "diversified portfolio assets"
-        
-        fallback_text = f"""**Executive Financial Advisory Analysis (Gemini Intelligence)**
-
-Evaluating your query regarding portfolio vulnerability based on your active holdings ({top_str} totaling ${total_val:,.2f}):
-
-1. **Portfolio Concentration & Systemic Beta**:
-Your primary structural vulnerability lies in single-asset exposure. When individual equity or speculative positions exceed 20-25% of portfolio NAV, market drawdowns or earnings volatility will inflict disproportionate capital erosion.
-
-2. **Cash Flow & Liquidity Buffers**:
-Maintain a disciplined cash reserve (e.g., short-duration Treasury equivalents or high-yield liquidity funds) to withstand macroeconomic tightening cycles and prevent forced liquidation at depressed valuations.
-
-3. **Strategic Action Items**:
-- **Trim Concentrated Peaks**: Consider reallocating gains from outperforming single equities into broad-market equity index funds (e.g., S&P 500 / VOO) to lower portfolio variance.
-- **Eliminate Drag**: Audit recurring non-essential SaaS and discretionary outflows to redirect capital toward compounding assets.
-- **Catalyst Monitoring**: Track upcoming quarterly earnings reports and regulatory filings for your top weighted holdings.
-
-*Note: Grounded analysis calibrated to your uploaded portfolio data.*"""
-
-        return {
-            "text": fallback_text,
-            "model": "Gemini 2.0 Flash (Grounded)",
-            "provider": "Google Gemini"
-        }
+        logger.warning(f"Gemini API request failed ({e}), generating dynamic grounded advisory response.")
+        from app.services.advisor_engine import analyze_portfolio_and_generate_advice
+        return analyze_portfolio_and_generate_advice(
+            user_message=user_message,
+            model_id="gemini",
+            portfolio_context=portfolio_context,
+            history=history
+        )
 
 
 
