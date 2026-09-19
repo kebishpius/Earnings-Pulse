@@ -122,6 +122,21 @@ VITE_AUTH0_CLIENT_ID=dummy_client_id_for_dev
 
 ---
 
+### Step 4: Production Deployment to Vercel
+
+The project is fully configured for direct deployment to Vercel with zero setup:
+1. Push or import this repository into your **Vercel Dashboard**.
+2. Vercel automatically detects the root `vercel.json`, `package.json`, and `requirements.txt`.
+3. Under **Settings -> Environment Variables**, add your keys:
+   - `NVIDIA_API_KEY`
+   - `GEMINI_API_KEY`
+   - `ANTHROPIC_API_KEY`
+   - `VITE_AUTH0_DOMAIN` (optional)
+   - `VITE_AUTH0_CLIENT_ID` (optional)
+4. Click **Deploy**. Vercel will build the React SPA and serve the backend API routes seamlessly.
+
+---
+
 ## 🔒 Authentication & Hackathon Demo Mode
 
 - **Auth0 Production Mode**: Enter your Auth0 domain and Client ID in `frontend/.env` to authenticate against your own Auth0 tenant.

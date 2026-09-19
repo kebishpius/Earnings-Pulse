@@ -1,19 +1,19 @@
 import React from 'react';
-import { Activity, ShieldAlert, Cpu, Globe, LogOut, UserCheck } from 'lucide-react';
+import { Activity, ShieldAlert, Cpu, Globe, LogOut, ShieldCheck, Lock } from 'lucide-react';
 import { useAppAuth } from '../auth/AuthContext';
 
 const Navbar = ({ activeTab, setActiveTab }) => {
-  const { user, logout } = useAppAuth();
+  const { user, logout, isDemo, isAuth0User } = useAppAuth();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-[#070a12]/90 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-[#070a12]/90 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           
           {/* Logo & Hackathon Badge */}
           <div className="flex items-center space-x-3">
             <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-600 via-blue-600 to-emerald-500 p-0.5 shadow-lg shadow-cyan-500/20 flex items-center justify-center">
-              <div className="h-full w-full bg-dark-900 rounded-[10px] flex items-center justify-center">
+              <div className="h-full w-full bg-[#070a12] rounded-[10px] flex items-center justify-center">
                 <Activity className="h-5 w-5 text-cyan-400 animate-pulse" />
               </div>
             </div>
@@ -50,20 +50,34 @@ const Navbar = ({ activeTab, setActiveTab }) => {
           <div className="flex items-center space-x-3">
             <div className="flex items-center space-x-2 pl-3 pr-2 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-xs">
               {user?.picture ? (
-                <img src={user.picture} alt={user.name} className="h-6 w-6 rounded-full border border-cyan-500/50 object-cover" />
+                <img src={user.picture} alt={user.name || "User"} className="h-6 w-6 rounded-full border border-cyan-500/50 object-cover" />
               ) : (
                 <div className="h-6 w-6 rounded-full bg-cyan-900 flex items-center justify-center text-cyan-300 font-bold text-[10px]">
                   {user?.name?.[0] || 'U'}
                 </div>
               )}
               <div className="hidden sm:block text-left">
-                <p className="text-[11px] font-semibold text-slate-200 leading-none">{user?.name || "Analyst"}</p>
-                <p className="text-[9px] text-slate-400 leading-tight truncate max-w-[110px]">{user?.email || "Auth0 Verified"}</p>
+                <div className="flex items-center space-x-1.5">
+                  <p className="text-[11px] font-semibold text-slate-200 leading-none">{user?.name || "Analyst"}</p>
+                  {isAuth0User ? (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center space-x-0.5">
+                      <Lock className="h-2 w-2" />
+                      <span>Auth0</span>
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-0.5">
+                      <ShieldCheck className="h-2 w-2" />
+                      <span>Demo</span>
+                    </span>
+                  )}
+                </div>
+                <p className="text-[9px] text-slate-400 leading-tight truncate max-w-[130px]">{user?.email || "Authenticated"}</p>
               </div>
               <button
                 onClick={logout}
                 title="Sign Out"
-                className="p-1 rounded-full text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-colors ml-1"
+                type="button"
+                className="p-1 rounded-full text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-colors ml-1 cursor-pointer"
               >
                 <LogOut className="h-3.5 w-3.5" />
               </button>
@@ -75,8 +89,9 @@ const Navbar = ({ activeTab, setActiveTab }) => {
         {/* Tab Navigation Navigation */}
         <div className="flex space-x-1 border-t border-slate-800/60 pt-2 pb-2.5 overflow-x-auto no-scrollbar">
           <button
+            type="button"
             onClick={() => setActiveTab('earnings')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
               activeTab === 'earnings'
                 ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -87,8 +102,9 @@ const Navbar = ({ activeTab, setActiveTab }) => {
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('news')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
               activeTab === 'news'
                 ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -99,8 +115,9 @@ const Navbar = ({ activeTab, setActiveTab }) => {
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('portfolio')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all cursor-pointer ${
               activeTab === 'portfolio'
                 ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/10'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'

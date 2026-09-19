@@ -1,0 +1,11 @@
+{
+  "name": "earningspulse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EarningsPulse - Dual-Model AI Financial Decision & Risk Routing Platform (SteelHacks XIII)",
+  "scripts": {
+    "build": "npm run build --prefix frontend",
+    "dev": "npm run dev --prefix frontend",
+    "preview": "npm run preview --prefix frontend"
+  }
+}

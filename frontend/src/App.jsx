@@ -4,10 +4,20 @@ import Navbar from './components/Navbar';
 import TabEarnings from './components/TabEarnings';
 import TabNews from './components/TabNews';
 import TabPortfolio from './components/TabPortfolio';
-import { Activity, Lock, Cpu, Globe, ArrowRight, ShieldCheck, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Activity, Lock, Cpu, Globe, ArrowRight, ShieldCheck, Sparkles, Settings, AlertCircle, RefreshCw } from 'lucide-react';
 
 function App() {
-  const { isAuthenticated, isLoading, loginWithAuth0, loginAsDemo, isAuth0Configured } = useAppAuth();
+  const {
+    isAuthenticated,
+    isLoading,
+    loginWithAuth0,
+    loginAsDemo,
+    isAuth0Configured,
+    openConfigModal,
+    authConfig,
+    auth0Error
+  } = useAppAuth();
+
   const [activeTab, setActiveTab] = useState('earnings');
   const [backendHealth, setBackendHealth] = useState(null);
 
@@ -51,9 +61,20 @@ function App() {
             <span className="text-lg font-bold tracking-tight text-white">EarningsPulse</span>
           </div>
 
-          <div className="flex items-center space-x-2 text-xs font-semibold px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>SteelHacks XIII Edition</span>
+          <div className="flex items-center space-x-3 text-xs">
+            <button
+              onClick={openConfigModal}
+              title="Configure Auth0 Tenant"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              <span>Auth0 Config</span>
+            </button>
+
+            <div className="flex items-center space-x-2 font-semibold px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>SteelHacks XIII Edition</span>
+            </div>
           </div>
         </header>
 
@@ -75,30 +96,56 @@ function App() {
 
           {/* Secure Login & Access Card */}
           <div className="mt-10 w-full max-w-md glass-panel rounded-2xl p-6 border border-slate-800 shadow-2xl relative">
-            <div className="flex items-center justify-center space-x-2 text-xs uppercase font-bold tracking-wider text-slate-400 mb-5">
-              <Lock className="h-3.5 w-3.5 text-cyan-400" />
-              <span>Identity Verification</span>
+            <div className="flex items-center justify-between text-xs uppercase font-bold tracking-wider text-slate-400 mb-5">
+              <div className="flex items-center space-x-2">
+                <Lock className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Identity Verification</span>
+              </div>
+              <button
+                type="button"
+                onClick={openConfigModal}
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center space-x-1 cursor-pointer"
+                title="Configure Auth0 Domain & Client ID"
+              >
+                <Settings className="h-3 w-3" />
+                <span>{isAuth0Configured ? "Auth0 Live" : "Tenant Setup"}</span>
+              </button>
             </div>
 
+            {/* Auth0 Error Banner (if any) */}
+            {auth0Error && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs text-left flex items-start space-x-2">
+                <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold">Auth0 Notification</p>
+                  <p className="text-[11px] text-slate-300 mt-0.5">{auth0Error.message || "Auth0 verification issue."}</p>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3">
-              {/* Primary Auth0 Login */}
-              {isAuth0Configured && loginWithAuth0 ? (
-                <button
-                  onClick={() => loginWithAuth0()}
-                  className="w-full py-3 px-4 bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-cyan-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
-                >
-                  <Lock className="h-4 w-4" />
-                  <span>Authenticate with Auth0</span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              ) : null}
+              {/* Primary Auth0 Login Button */}
+              <button
+                type="button"
+                onClick={loginWithAuth0}
+                className="w-full py-3 px-4 bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-cyan-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer group"
+              >
+                <Lock className="h-4 w-4 text-cyan-200 group-hover:scale-110 transition-transform" />
+                <span>
+                  {isAuth0Configured
+                    ? "Authenticate with Auth0 (Universal Login)"
+                    : "Authenticate with Auth0"}
+                </span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
 
               {/* Instant Hackathon Demo Mode (Zero Friction for Judges) */}
               <button
+                type="button"
                 onClick={loginAsDemo}
-                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 hover:from-emerald-500 hover:to-cyan-600 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 hover:from-emerald-500 hover:to-cyan-600 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer group"
               >
-                <ShieldCheck className="h-4 w-4 text-emerald-300" />
+                <ShieldCheck className="h-4 w-4 text-emerald-300 group-hover:scale-110 transition-transform" />
                 <span>Instant Hackathon Demo Login</span>
                 <ArrowRight className="h-4 w-4" />
               </button>
