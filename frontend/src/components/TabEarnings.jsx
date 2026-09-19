@@ -48,38 +48,38 @@ const TabEarnings = () => {
   };
 
   const getSentimentBadge = (sentiment = 'Bullish') => {
-    switch (sentiment.toLowerCase()) {
-      case 'bullish':
-        return (
-          <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-bold text-sm shadow-sm shadow-emerald-500/20">
-            <TrendingUp className="h-4 w-4" />
-            <span>Bullish Executive Tone</span>
-          </div>
-        );
-      case 'bearish':
-        return (
-          <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/15 border border-rose-500/40 text-rose-400 font-bold text-sm shadow-sm shadow-rose-500/20">
-            <TrendingDown className="h-4 w-4" />
-            <span>Bearish Headwinds Disclosed</span>
-          </div>
-        );
-      default:
-        return (
-          <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 font-bold text-sm shadow-sm shadow-amber-500/20">
-            <Minus className="h-4 w-4" />
-            <span>Neutral / Balanced Guidance</span>
-          </div>
-        );
+    const s = (sentiment || '').toLowerCase();
+    if (s.includes('bull') || s.includes('pos') || s.includes('strong') || s.includes('outperform')) {
+      return (
+        <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-bold text-sm shadow-sm shadow-emerald-500/20">
+          <TrendingUp className="h-4 w-4" />
+          <span>Bullish Executive Tone</span>
+        </div>
+      );
     }
+    if (s.includes('bear') || s.includes('neg') || s.includes('weak') || s.includes('headwind') || s.includes('miss')) {
+      return (
+        <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/15 border border-rose-500/40 text-rose-400 font-bold text-sm shadow-sm shadow-rose-500/20">
+          <TrendingDown className="h-4 w-4" />
+          <span>Bearish Headwinds Disclosed</span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 font-bold text-sm shadow-sm shadow-amber-500/20">
+        <Minus className="h-4 w-4" />
+        <span>Neutral / Balanced Guidance</span>
+      </div>
+    );
   };
 
   const getBeatBadge = (status = '') => {
     if (!status) return null;
     const s = status.toLowerCase();
-    if (s.includes('beat')) {
+    if (s.includes('beat') || s.includes('exceed') || s.includes('above') || s.includes('top') || s.includes('higher') || s.includes('pos')) {
       return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">BEAT</span>;
     }
-    if (s.includes('miss')) {
+    if (s.includes('miss') || s.includes('below') || s.includes('lower') || s.includes('lag') || s.includes('neg')) {
       return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30">MISS</span>;
     }
     return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-700 text-slate-300 border border-slate-600">IN-LINE</span>;
@@ -153,11 +153,12 @@ const TabEarnings = () => {
             <button
               key={sq.label}
               type="button"
+              disabled={loading}
               onClick={() => {
                 setQuery(sq.query);
                 handleSearch(sq.query);
               }}
-              className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-cyan-950/60 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 text-slate-300 transition-colors"
+              className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-cyan-950/60 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/40 text-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {sq.label} ({sq.ticker})
             </button>
@@ -183,9 +184,17 @@ const TabEarnings = () => {
 
       {/* Error Notice */}
       {error && (
-        <div className="glass-panel rounded-xl p-5 border border-rose-500/40 bg-rose-950/20 flex items-center space-x-3 text-rose-300">
-          <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
-          <p className="text-sm">{error}</p>
+        <div className="glass-panel rounded-xl p-5 border border-rose-500/40 bg-rose-950/20 flex items-center justify-between text-rose-300">
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
+            <p className="text-sm">{error}</p>
+          </div>
+          <button
+            onClick={() => handleSearch()}
+            className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold cursor-pointer transition-colors"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -227,6 +236,15 @@ const TabEarnings = () => {
                     {Math.round((result.sentiment_confidence || 0.9) * 100)}%
                   </div>
                 </div>
+                <div className="h-10 w-px bg-slate-800 hidden sm:block" />
+                <button
+                  type="button"
+                  onClick={() => setResult(null)}
+                  title="Clear Analysis & Start New Search"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  Clear
+                </button>
               </div>
             </div>
 

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from app.schemas.models import FetchAndAnalyzeRequest, EarningsAnalysisResponse, MetricItem, CitationItem
 from app.services.gemini_service import fetch_live_earnings_data
 from app.services.nemotron_service import analyze_earnings_transcript
+from app.config import NVIDIA_MODEL
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Earnings"])
@@ -77,7 +78,7 @@ async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
         pipeline_metadata={
             "elapsed_ms": elapsed_ms,
             "gemini_provider": gemini_result.get("provider", "Gemini 2.0 Flash Grounded"),
-            "nemotron_model": "NVIDIA Nemotron (NIM)",
+            "nemotron_model": f"NVIDIA Nemotron ({NVIDIA_MODEL})",
             "query": query
         }
     )

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign, TrendingDown, ArrowRight, CheckCircle2, ShieldAlert, Trash2, RotateCcw } from 'lucide-react';
 import { INITIAL_PORTFOLIO } from '../mockData/samples';
 
 const TabPortfolio = () => {
@@ -8,6 +8,7 @@ const TabPortfolio = () => {
   const [auditing, setAuditing] = useState(false);
   const [auditResult, setAuditResult] = useState(null);
   const [error, setError] = useState(null);
+  const [isLedgerModified, setIsLedgerModified] = useState(false);
 
   // Quick transaction add state
   const [newDesc, setNewDesc] = useState('');
@@ -18,17 +19,32 @@ const TabPortfolio = () => {
 
   const handleAddTransaction = (e) => {
     e.preventDefault();
-    if (!newDesc.trim() || !newAmount) return;
+    const amt = parseFloat(newAmount);
+    if (!newDesc.trim() || isNaN(amt) || amt <= 0) return;
     const newTx = {
       id: `tx-${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
       description: newDesc.trim(),
-      amount: parseFloat(newAmount),
+      amount: amt,
       category: newCategory
     };
     setTransactions([newTx, ...transactions]);
     setNewDesc('');
     setNewAmount('');
+    setIsLedgerModified(true);
+  };
+
+  const handleDeleteTransaction = (id) => {
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    setIsLedgerModified(true);
+  };
+
+  const handleResetPortfolio = () => {
+    setHoldings(INITIAL_PORTFOLIO.holdings);
+    setTransactions(INITIAL_PORTFOLIO.transactions);
+    setAuditResult(null);
+    setIsLedgerModified(false);
+    setError(null);
   };
 
   const handleRunAudit = async () => {
@@ -51,6 +67,7 @@ const TabPortfolio = () => {
 
       const data = await res.json();
       setAuditResult(data);
+      setIsLedgerModified(false);
     } catch (err) {
       console.error(err);
       setError(err.message || 'Failed to complete Nemotron portfolio audit.');

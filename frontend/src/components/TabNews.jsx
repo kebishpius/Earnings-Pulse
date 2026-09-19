@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldAlert, AlertOctagon, Zap, ArrowUpRight, Filter, PlusCircle, RefreshCw, Send, CheckCircle2 } from 'lucide-react';
+import { ShieldAlert, AlertOctagon, Zap, ArrowUpRight, Filter, PlusCircle, RefreshCw, Send, CheckCircle2, Trash2, RotateCcw } from 'lucide-react';
 import { SAMPLE_NEWS_ARTICLES } from '../mockData/samples';
 
 const TabNews = () => {
@@ -12,9 +12,13 @@ const TabNews = () => {
   const [content, setContent] = useState('');
   const [routing, setRouting] = useState(false);
 
-  const handleRouteNews = async (e) => {
-    e.preventDefault();
-    if (!headline.trim()) return;
+  const handleRouteNews = async (e = null, customPayload = null) => {
+    if (e) e.preventDefault();
+    const targetHeadline = (customPayload ? customPayload.headline : headline).trim();
+    const targetSource = (customPayload ? customPayload.source : source).trim() || 'Direct Newsfeed Wire';
+    const targetContent = (customPayload ? customPayload.content : content).trim() || null;
+
+    if (!targetHeadline) return;
 
     setRouting(true);
     try {
@@ -22,9 +26,9 @@ const TabNews = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          headline: headline.trim(),
-          source: source.trim() || 'Direct Newsfeed Wire',
-          content: content.trim() || null
+          headline: targetHeadline,
+          source: targetSource,
+          content: targetContent
         })
       });
 
@@ -36,42 +40,61 @@ const TabNews = () => {
       
       const newItem = {
         id: `news-${Date.now()}`,
-        headline: headline.trim(),
-        source: source.trim() || 'Direct Ingestion',
+        headline: targetHeadline,
+        source: targetSource,
         timestamp: 'Just now',
-        content: content.trim(),
+        content: targetContent,
         defaultClassification: classification
       };
 
-      setFeed([newItem, ...feed]);
-      setHeadline('');
-      setSource('');
-      setContent('');
+      setFeed((prev) => [newItem, ...prev]);
+      if (!customPayload) {
+        setHeadline('');
+        setSource('');
+        setContent('');
+      }
     } catch (err) {
       console.error('Failed to route news:', err);
-      // Client-side fallback if network error
-      const isHigh = headline.toLowerCase().includes('antitrust') || headline.toLowerCase().includes('investigation') || headline.toLowerCase().includes('default');
+      const isHigh = targetHeadline.toLowerCase().includes('antitrust') || targetHeadline.toLowerCase().includes('investigation') || targetHeadline.toLowerCase().includes('default') || targetHeadline.toLowerCase().includes('subpoena');
       const fallbackItem = {
         id: `news-${Date.now()}`,
-        headline: headline.trim(),
-        source: source.trim() || 'Manual Input',
+        headline: targetHeadline,
+        source: targetSource,
         timestamp: 'Just now',
-        content: content.trim(),
+        content: targetContent,
         defaultClassification: {
           impact_tier: isHigh ? 'High' : 'Medium',
           is_material_risk: isHigh,
-          sentiment: 'Bearish',
-          category: 'Corporate Action',
-          urgency_score: isHigh ? 8 : 5,
-          market_impact_analysis: 'Nemotron classifies this as a relevant systemic development impacting implied volatility.',
-          recommended_action: 'Assess beta exposure and monitor correlated indices.'
+          sentiment: isHigh ? 'Bearish' : 'Bullish',
+          category: isHigh ? 'Regulatory & Legal' : 'Corporate Action',
+          urgency_score: isHigh ? 9 : 6,
+          market_impact_analysis: 'Nemotron classifies this as a relevant systemic development impacting implied volatility surfaces.',
+          recommended_action: isHigh ? 'Hedge beta exposure across correlated holdings.' : 'Monitor sector volume momentum and maintain baseline positioning.'
         }
       };
-      setFeed([fallbackItem, ...feed]);
-      setHeadline('');
+      setFeed((prev) => [fallbackItem, ...prev]);
+      if (!customPayload) {
+        setHeadline('');
+      }
     } finally {
       setRouting(false);
     }
+  };
+
+  const handleRoutePreset = (preset) => {
+    setHeadline(preset.headline);
+    setSource(preset.source);
+    setContent(preset.content || '');
+    handleRouteNews(null, preset);
+  };
+
+  const handleDismissItem = (id) => {
+    setFeed((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleResetFeed = () => {
+    setFeed(SAMPLE_NEWS_ARTICLES);
+    setFilterTier('ALL');
   };
 
   const getTierBadge = (tier = 'Medium') => {
@@ -202,25 +225,29 @@ const TabNews = () => {
             <div className="space-y-2">
               <button
                 type="button"
-                onClick={() => {
-                  setHeadline("DOJ Antirust Subpoenas Cloud Provider Over Accelerated Hardware Bundling");
-                  setSource("Financial Times");
-                  setContent("Regulators demand unredacted vendor agreements regarding GPU quota distribution.");
-                }}
-                className="w-full text-left p-2 rounded-lg bg-slate-900/60 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 hover:border-slate-700 truncate"
+                disabled={routing}
+                onClick={() => handleRoutePreset({
+                  headline: "DOJ Antitrust Subpoenas Cloud Provider Over Accelerated Hardware Bundling",
+                  source: "Financial Times",
+                  content: "Regulators demand unredacted vendor agreements regarding GPU quota distribution."
+                })}
+                className="w-full text-left p-2 rounded-lg bg-slate-900/60 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 hover:border-slate-700 transition-colors disabled:opacity-50 flex items-center justify-between cursor-pointer"
               >
-                🚨 DOJ Antitrust Probe (High Risk)
+                <span className="truncate">🚨 DOJ Antitrust Probe (High Risk)</span>
+                <span className="text-[10px] text-amber-400 font-bold ml-1 shrink-0">➔ Route</span>
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setHeadline("Mega-Cap Hyperscaler Inks $3.2B Clean Nuclear Energy Agreement for New Data Hubs");
-                  setSource("Bloomberg");
-                  setContent("Secures long-term baseload electricity through 2038 to mitigate grid constraints.");
-                }}
-                className="w-full text-left p-2 rounded-lg bg-slate-900/60 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 hover:border-slate-700 truncate"
+                disabled={routing}
+                onClick={() => handleRoutePreset({
+                  headline: "Mega-Cap Hyperscaler Inks $3.2B Clean Nuclear Energy Agreement for New Data Hubs",
+                  source: "Bloomberg",
+                  content: "Secures long-term baseload electricity through 2038 to mitigate grid constraints."
+                })}
+                className="w-full text-left p-2 rounded-lg bg-slate-900/60 hover:bg-slate-800 text-[11px] text-slate-300 border border-slate-800 hover:border-slate-700 transition-colors disabled:opacity-50 flex items-center justify-between cursor-pointer"
               >
-                ⚡ Hyperscaler Nuclear Power Pact
+                <span className="truncate">⚡ Hyperscaler Nuclear Power Pact</span>
+                <span className="text-[10px] text-emerald-400 font-bold ml-1 shrink-0">➔ Route</span>
               </button>
             </div>
           </div>
@@ -231,9 +258,20 @@ const TabNews = () => {
           
           {/* Feed Filter Controls */}
           <div className="flex flex-wrap items-center justify-between gap-3 p-3 glass-panel rounded-xl border border-slate-800">
-            <div className="flex items-center space-x-2 text-xs text-slate-400 font-semibold">
-              <Filter className="h-3.5 w-3.5 text-cyan-400" />
-              <span>Filter Feed:</span>
+            <div className="flex items-center space-x-3 text-xs text-slate-400 font-semibold">
+              <div className="flex items-center space-x-1.5">
+                <Filter className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Filter Feed:</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetFeed}
+                title="Reset feed to initial sample signals"
+                className="flex items-center space-x-1 text-[11px] text-slate-400 hover:text-cyan-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>Reset</span>
+              </button>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {[
@@ -246,7 +284,7 @@ const TabNews = () => {
                 <button
                   key={btn.id}
                   onClick={() => setFilterTier(btn.id)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                     filterTier === btn.id
                       ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
                       : 'text-slate-400 hover:text-white bg-slate-900/60 border border-slate-800'
@@ -290,6 +328,14 @@ const TabNews = () => {
                       <span className="font-semibold text-slate-300">{item.source}</span>
                       <span>•</span>
                       <span>{item.timestamp}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDismissItem(item.id)}
+                        title="Dismiss signal from feed"
+                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition-colors ml-1 cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
 
