@@ -25,7 +25,10 @@ _TICKER_MAP: Dict[str, Dict[str, Any]] = {}
 
 def _init_companies_cache():
     global _COMPANIES_INDEX, _TICKER_MAP
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
 
     if not TICKERS_CACHE_FILE.exists() or TICKERS_CACHE_FILE.stat().st_size == 0:
         logger.info("Downloading official SEC EDGAR company_tickers.json...")
