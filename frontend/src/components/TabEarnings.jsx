@@ -1,8 +1,8 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe, Building2, X, ArrowUpRight, FileText, BookOpen, Headphones, BarChart2, DollarSign } from 'lucide-react';
+import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe, Building2, X, ArrowUpRight, FileText, BookOpen, Headphones, BarChart2, DollarSign, Dices } from 'lucide-react';
 
 import { SAMPLE_QUERIES } from '../mockData/samples';
-import { getCompanySuggestions } from '../mockData/companies';
+import { getCompanySuggestions, POPULAR_COMPANIES } from '../mockData/companies';
 
 // Curated intelligent fallback dossiers for seamless testing when backend is offline
 const FALLBACK_EARNINGS_DATABASE = {
@@ -115,6 +115,7 @@ const TabEarnings = () => {
   const [isSearchingEdgar, setIsSearchingEdgar] = useState(false);
   const searchContainerRef = useRef(null);
   const inputRef = useRef(null);
+  const lastLuckyTicker = useRef(null);
 
   // Local presets suggestions
   const localSuggestions = useMemo(() => {
@@ -343,6 +344,21 @@ const TabEarnings = () => {
     }
   };
 
+  // Picks a random company and runs the full pipeline on it, never repeating
+  // the previous pick so consecutive clicks always land somewhere new.
+  const handleFeelingLucky = () => {
+    if (loading) return;
+    const pool = POPULAR_COMPANIES.filter(c => c.ticker !== lastLuckyTicker.current);
+    if (pool.length === 0) return;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    lastLuckyTicker.current = pick.ticker;
+
+    setShowSuggestions(false);
+    setSelectedIndex(-1);
+    setQuery(pick.query);
+    handleSearch(pick.query);
+  };
+
   const getSentimentBadge = (sentiment = 'Bullish') => {
     const s = (sentiment || '').toLowerCase();
     if (s.includes('bull') || s.includes('pos') || s.includes('strong') || s.includes('outperform')) {
@@ -567,6 +583,17 @@ const TabEarnings = () => {
                 <span>Fetch & Analyze</span>
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleFeelingLucky}
+            disabled={loading}
+            title="Analyze a random stock"
+            className="px-4 py-3 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-amber-300 font-semibold text-sm rounded-xl border border-slate-700 hover:border-amber-500/40 flex items-center justify-center space-x-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0 group"
+          >
+            <Dices className="h-4 w-4 text-amber-400 group-hover:rotate-12 transition-transform" />
+            <span>I'm Feeling Lucky</span>
           </button>
         </form>
 
