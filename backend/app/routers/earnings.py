@@ -35,7 +35,7 @@ async def stock_history_endpoint(
     try:
         return fetch_price_history(ticker, range)
     except PriceUnavailable as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=e.status, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected price history error for {ticker}: {e}")
         raise HTTPException(status_code=502, detail="Price feed error.")

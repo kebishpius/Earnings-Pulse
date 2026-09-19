@@ -201,6 +201,13 @@ const StockPriceChart = ({ ticker, companyName }) => {
             )}
           </div>
 
+          {data?.resolved_from && (
+            <p className="text-[11px] text-amber-400/90 mt-1">
+              No listing found for {data.resolved_from} — showing {data.ticker}
+              {data.name ? ` (${data.name})` : ''} instead.
+            </p>
+          )}
+
           {data && (
             <p className="text-[11px] text-slate-500 mt-1">
               {data.exchange ? `${data.exchange} · ` : ''}
