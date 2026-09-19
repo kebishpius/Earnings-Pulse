@@ -570,12 +570,17 @@ Guidelines:
 
     try:
         logger.info(f"Nemotron advisor trying primary model: {primary_model}")
+        # Build multi-turn messages from history + current user message
+        messages = [{"role": "system", "content": system_prompt}]
+        for turn in (history or []):
+            role = turn.get("role", "user")
+            openai_role = "assistant" if role == "assistant" else "user"
+            messages.append({"role": openai_role, "content": turn.get("content", "")})
+        messages.append({"role": "user", "content": user_message})
+
         completion = client.chat.completions.create(
             model=primary_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ],
+            messages=messages,
             temperature=0.7,
             max_tokens=1024,
             timeout=3.5

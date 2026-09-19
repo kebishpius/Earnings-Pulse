@@ -309,10 +309,28 @@ Provide your expert financial advisory response:"""
         from google.genai import types
 
         client = genai.Client(api_key=GEMINI_API_KEY)
+
+        # Build multi-turn chat contents from history
+        chat_contents = []
+        for turn in (history or []):
+            role = turn.get("role", "user")
+            # Gemini uses "model" for assistant turns
+            gemini_role = "model" if role == "assistant" else "user"
+            chat_contents.append(types.Content(
+                role=gemini_role,
+                parts=[types.Part(text=turn.get("content", ""))]
+            ))
+        # Append the current user message
+        chat_contents.append(types.Content(
+            role="user",
+            parts=[types.Part(text=user_message)]
+        ))
+
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=advisor_prompt,
+            contents=chat_contents if chat_contents else advisor_prompt,
             config=types.GenerateContentConfig(
+                system_instruction=advisor_prompt.split("USER QUESTION:")[0].strip() if "USER QUESTION:" in advisor_prompt else advisor_prompt,
                 temperature=0.7,
                 max_output_tokens=1024,
             )

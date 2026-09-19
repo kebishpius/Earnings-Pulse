@@ -89,13 +89,20 @@ def advise_with_claude(user_message: str, portfolio_context: dict = None, histor
     logger.info(f"Sending advisor request to Claude {CLAUDE_MODEL}: '{user_message[:80]}...'")
 
     try:
+        # Build multi-turn messages from history + current user message
+        messages = []
+        for turn in (history or []):
+            role = turn.get("role", "user")
+            # Claude supports "user" and "assistant" roles
+            claude_role = "assistant" if role == "assistant" else "user"
+            messages.append({"role": claude_role, "content": turn.get("content", "")})
+        messages.append({"role": "user", "content": user_message})
+
         response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=1024,
             system=full_system,
-            messages=[
-                {"role": "user", "content": user_message}
-            ]
+            messages=messages
         )
         text = response.content[0].text if response.content else "No response generated."
         return {

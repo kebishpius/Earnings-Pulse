@@ -198,17 +198,17 @@ function App() {
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className={activeTab === 'earnings' ? 'block' : 'hidden'}>
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8" style={{ backgroundColor: '#070a12' }}>
+        <div style={{ display: activeTab === 'earnings' ? 'block' : 'none', backgroundColor: '#070a12' }}>
           <TabEarnings />
         </div>
-        <div className={activeTab === 'news' ? 'block' : 'hidden'}>
+        <div style={{ display: activeTab === 'news' ? 'block' : 'none', backgroundColor: '#070a12' }}>
           <TabNews />
         </div>
-        <div className={activeTab === 'portfolio' ? 'block' : 'hidden'}>
+        <div style={{ display: activeTab === 'portfolio' ? 'block' : 'none', backgroundColor: '#070a12' }}>
           <TabPortfolio />
         </div>
-        <div className={activeTab === 'advisor' ? 'block' : 'hidden'}>
+        <div style={{ display: activeTab === 'advisor' ? 'block' : 'none', backgroundColor: '#070a12' }}>
           <TabAdvisor />
         </div>
       </main>
