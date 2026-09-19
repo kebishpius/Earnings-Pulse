@@ -10,6 +10,7 @@ from app.services.gemini_service import fetch_live_earnings_data
 from app.services.nemotron_service import analyze_earnings_transcript, assess_sentiment_from_evidence
 from app.services.edgar_service import search_edgar_companies, resolve_company_from_query, fetch_edgar_2026_dossier
 from app.services.market_news_service import fetch_company_articles, format_articles_for_prompt
+from app.services.price_service import fetch_price_history, PriceUnavailable
 from app.config import NVIDIA_MODEL
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,23 @@ async def search_companies_endpoint(q: str = Query("", description="Ticker or co
     Real-time autocomplete searching across all 10,400+ SEC EDGAR public companies.
     """
     return search_edgar_companies(q, limit=limit)
+
+@router.get("/stock-history")
+async def stock_history_endpoint(
+    ticker: str = Query(..., description="Ticker symbol, e.g. AAPL"),
+    range: str = Query("1mo", description="One of: 7d, 1mo, 6mo, 1y")
+):
+    """
+    Historical closing prices for the interactive chart on the Earnings tab.
+    Proxied server-side because the upstream price feed blocks browser origins.
+    """
+    try:
+        return fetch_price_history(ticker, range)
+    except PriceUnavailable as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected price history error for {ticker}: {e}")
+        raise HTTPException(status_code=502, detail="Price feed error.")
 
 @router.post("/fetch-and-analyze", response_model=EarningsAnalysisResponse)
 async def fetch_and_analyze_earnings(request: FetchAndAnalyzeRequest):
