@@ -9,7 +9,7 @@ if backend_dir not in sys.path:
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import NVIDIA_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY, NVIDIA_MODEL
+from app.config import NVIDIA_API_KEY, GEMINI_API_KEY, NVIDIA_MODEL
 from app.routers import earnings, news, audit, advisor, brokerage, earnings_calendar
 
 logging.basicConfig(
@@ -60,7 +60,6 @@ def health_check():
         "status": "healthy",
         "gemini_configured": bool(GEMINI_API_KEY),
         "nvidia_configured": bool(NVIDIA_API_KEY),
-        "anthropic_configured": bool(ANTHROPIC_API_KEY),
         "nemotron_model": NVIDIA_MODEL,
         "features": ["earnings", "earnings-calendar", "news", "portfolio-audit", "ai-advisor", "data-upload"]
     }

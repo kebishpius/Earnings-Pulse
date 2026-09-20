@@ -1,7 +1,7 @@
 # ⚡ EarningsPulse — Dual-Model Financial Intelligence & Risk Router
 ### SteelHacks XIII Hackathon Submission
 
-**EarningsPulse** is an advanced, full-stack financial decision engine and risk routing platform. It harnesses a state-of-the-art dual-model AI pipeline: **Google Gemini (with real-time Google Search grounding)** for live SEC filings, transcript retrieval, and web citations, coupled with **NVIDIA Nemotron (via NVIDIA NIM)** for high-conviction quantitative reasoning, market volatility routing, and portfolio leak auditing.
+**EarningsPulse** is an advanced, full-stack financial decision engine and risk routing platform. It harnesses a state-of-the-art dual-model AI pipeline: **Google Gemini (with real-time Google Search grounding)** for live SEC filings, transcript retrieval, web citations, and broker CSV parsing, coupled with **NVIDIA Nemotron (via NVIDIA NIM)** for high-conviction quantitative reasoning, market volatility routing, portfolio leak auditing, and the conversational AI Financial Advisor.
 
 ---
 
@@ -27,9 +27,9 @@
                         │                         │            │                         │
                         ▼                         ▼            ▼                         ▼
             ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
-            │  Google GenAI SDK     │ │   NVIDIA NIM Client   │ │   Anthropic Fallback  │
-            │  Gemini 2.0 Flash     │ │   NVIDIA Nemotron     │ │   Claude 3.5 Sonnet   │
-            │  tools=[google_search]│ │   (Deep Reasoning)    │ │   (Redundancy Guard)  │
+            │  Google GenAI SDK     │ │   NVIDIA NIM Client   │ │  Local Advisor Engine │
+            │  Gemini 2.0 Flash     │ │   NVIDIA Nemotron     │ │  Deterministic Quant  │
+            │  tools=[google_search]│ │   (Deep Reasoning)    │ │  (Offline Safety Net) │
             └───────────┬───────────┘ └───────────┬───────────┘ └───────────────────────┘
                         │                         │
                         ▼                         ▼
@@ -78,7 +78,6 @@ A root `.env` file is pre-configured with the required API credentials:
 ```env
 NVIDIA_API_KEY=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
 GEMINI_API_KEY=AQ.Ab8RN6IKQxlbnVTRrIb3O_RU2oDvPQIIbtayWqN3aQrKQot8iA
-ANTHROPIC_API_KEY=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
 
 # Auth0 Configuration (Optional - Demo mode works out of the box)
 VITE_AUTH0_DOMAIN=dev-steelhacks.us.auth0.com
@@ -131,7 +130,6 @@ The project is fully configured for direct deployment to Vercel with zero setup:
 3. Under **Settings -> Environment Variables**, add your keys:
    - `NVIDIA_API_KEY`
    - `GEMINI_API_KEY`
-   - `ANTHROPIC_API_KEY`
    - `VITE_AUTH0_DOMAIN` (optional)
    - `VITE_AUTH0_CLIENT_ID` (optional)
 4. Click **Deploy**. Vercel will build the React SPA and serve the backend API routes seamlessly.
@@ -247,4 +245,4 @@ Scans holdings and transaction ledgers for concentration and recurring spending 
 ## 🏆 SteelHacks XIII Project Details
 - **Team**: EarningsPulse Quantitative AI Engineering Team
 - **Stack**: FastAPI, Python 3.13, React 18, Tailwind CSS, Vite, Auth0
-- **AI Models**: Google Gemini 2.0 Flash with Google Search Grounding, NVIDIA Nemotron via NVIDIA NIM, Anthropic Claude 3.5 Sonnet
+- **AI Models**: Google Gemini 2.0 Flash with Google Search Grounding (earnings retrieval + CSV parsing), NVIDIA Nemotron via NVIDIA NIM (quantitative reasoning + AI Financial Advisor)

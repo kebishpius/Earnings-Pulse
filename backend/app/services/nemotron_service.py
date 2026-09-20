@@ -1,9 +1,13 @@
 import json
 import logging
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Dict, Any, List
 from openai import OpenAI
-from app.config import NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_MODEL, NVIDIA_FALLBACK_MODELS, ANTHROPIC_API_KEY
+from app.config import NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_MODEL, NVIDIA_FALLBACK_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +84,11 @@ def _normalize_beat_status(val: str) -> str:
     return "In-Line"
 
 
-def _call_nemotron_or_fallback(system_prompt: str, user_prompt: str) -> str:
+def _call_nemotron(system_prompt: str, user_prompt: str) -> str:
     """
-    Calls NVIDIA Nemotron endpoint with primary model and validated fallbacks.
+    Calls the NVIDIA Nemotron endpoint, walking the primary model and its
+    validated NIM fallbacks. Raises when none of them answer; each caller has
+    its own deterministic fallback for that case.
     """
     if NVIDIA_API_KEY and not NVIDIA_API_KEY.startswith("dummy"):
         client = _get_nvidia_client()
@@ -107,25 +113,7 @@ def _call_nemotron_or_fallback(system_prompt: str, user_prompt: str) -> str:
             except Exception as e:
                 logger.warning(f"NVIDIA Nemotron call to '{model_name}' failed with {e}. Trying next available model...")
 
-    # Secondary: Anthropic Claude if configured and valid
-    if ANTHROPIC_API_KEY and not ANTHROPIC_API_KEY.startswith("dummy"):
-        try:
-            import anthropic
-            ant_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=30.0)
-            message = ant_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=3000,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}]
-            )
-            content = message.content[0].text
-            if content:
-                logger.info("Successfully received response from Anthropic Claude fallback")
-                return content
-        except Exception as e:
-            logger.warning(f"Anthropic fallback returned error: {e}")
-
-    raise RuntimeError("All AI model providers failed to respond or are unconfigured.")
+    raise RuntimeError("NVIDIA Nemotron is unreachable or unconfigured.")
 
 
 # -------------------------------------------------------------
@@ -197,7 +185,7 @@ Live Grounded Dossier:
 Perform deep structural quantitative analysis and output the exact JSON format in ```json ``` codeblock."""
 
     try:
-        raw_output = _call_nemotron_or_fallback(system_prompt, user_prompt)
+        raw_output = _call_nemotron(system_prompt, user_prompt)
         parsed = _clean_json_response(raw_output)
 
         # Normalize sentiment and metric statuses
@@ -478,7 +466,7 @@ Reported metrics extracted from that material:
 Weigh (A) and (B) together and output the exact JSON structure in a ```json ``` code block."""
 
     try:
-        raw_output = _call_nemotron_or_fallback(_SENTIMENT_SYSTEM_PROMPT, user_prompt)
+        raw_output = _call_nemotron(_SENTIMENT_SYSTEM_PROMPT, user_prompt)
         parsed = _clean_json_response(raw_output)
         parsed["method"] = "nemotron"
     except Exception as e:
@@ -559,7 +547,7 @@ Details/Content: {content or 'N/A'}
 Provide the JSON evaluation inside ```json ``` block."""
 
     try:
-        raw_output = _call_nemotron_or_fallback(system_prompt, user_prompt)
+        raw_output = _call_nemotron(system_prompt, user_prompt)
         parsed = _clean_json_response(raw_output)
 
         parsed["sentiment"] = _normalize_sentiment(parsed.get("sentiment", "Neutral"))
@@ -657,7 +645,7 @@ Transaction Log:
 Conduct comprehensive risk & leakage audit and return valid JSON inside ```json ``` block."""
 
     try:
-        raw_output = _call_nemotron_or_fallback(system_prompt, user_prompt)
+        raw_output = _call_nemotron(system_prompt, user_prompt)
         parsed = _clean_json_response(raw_output)
 
         parsed["overall_risk_score"] = int(parsed.get("overall_risk_score", 65))
@@ -790,10 +778,46 @@ def _build_nemotron_portfolio_context(portfolio_context: dict) -> str:
     return "\n".join(lines)
 
 
+# Every advisor turn resends the whole transcript, so the prompt grows with the
+# conversation. Keep the most recent turns only: enough for the model to follow
+# the thread, bounded so a long session cannot slow the call into a timeout.
+_MAX_HISTORY_TURNS = 12
+
+# A single advisor call must finish well inside the platform's 60s function
+# limit even after walking the whole model chain.
+_ADVISOR_TOTAL_BUDGET_S = 50.0
+_ADVISOR_ATTEMPT_TIMEOUT_S = 26.0
+
+# The NIM endpoints fail independently and unpredictably — one model times out
+# while another answers in two seconds, and which one that is changes between
+# requests. Walking them strictly in order meant a single hung model burned the
+# whole budget, so attempts are hedged: the next model joins the race only once
+# the one ahead of it has gone quiet for this long, and the first usable answer
+# wins. A responsive primary therefore still costs exactly one request.
+_ADVISOR_HEDGE_DELAY_S = 7.0
+
+
+def _strip_reasoning(text: str) -> str:
+    """
+    Remove a reasoning model's internal monologue from a prose answer.
+
+    The nemotron-3 models emit their chain of thought inline, either fenced in
+    <think> tags or as a leading unfenced trace. Shown verbatim it reads like
+    the advisor talking to itself about the user instead of to the user.
+    """
+    if not text:
+        return ""
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.I)
+    # An unclosed <think> means the trace ran to the end of the response.
+    cleaned = re.sub(r"<think>[\s\S]*$", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"</?think>", "", cleaned, flags=re.I)
+    return cleaned.strip()
+
+
 def advise_with_nemotron(user_message: str, portfolio_context: dict = None, history: list = None) -> dict:
     """
     Financial advisor using NVIDIA Nemotron NIM with full portfolio context.
-    Returns dict with 'text' and 'model' keys.
+    Returns dict with 'text', 'model' and 'provider' keys.
     """
     portfolio_str = _build_nemotron_portfolio_context(portfolio_context or {})
 
@@ -803,48 +827,99 @@ You have been given the user's actual financial data below. Use it to give highl
 {portfolio_str}
 
 Guidelines:
-- Reference specific numbers from their data (exact holdings, amounts, categories)
+- ALWAYS reference specific numbers from their data (exact holdings, amounts, categories, dates)
+- Never give generic advice when portfolio data is available — anchor every claim to their actual numbers
 - Be direct and actionable like a top-tier institutional asset manager
 - Apply quantitative risk principles: Sharpe ratios, drawdown analysis, concentration limits
 - Flag risks proactively and aggressively
-- Use clear formatting with bullet points or numbered lists when presenting multiple items
+- Format with markdown headings, bullet points, numbered lists and **bold** only. Never use markdown tables — the chat interface cannot render them and they arrive as unreadable rows of pipe characters.
+- This is an ongoing conversation: build on what has already been said instead of restarting the analysis, and answer the question actually asked in the latest turn
 - End with 1-2 concrete next steps the user can take TODAY
-- Keep responses focused and precise (200-400 words unless a deep dive is requested)"""
+- Write 200-400 words unless a deep dive is requested, and always finish your final sentence. Answer directly in prose — never show your internal reasoning."""
 
-    client = _get_nvidia_client()
-    primary_model = NVIDIA_FALLBACK_MODELS[0] if NVIDIA_FALLBACK_MODELS else "mistralai/mistral-nemotron"
+    # Build the multi-turn transcript once; every model in the chain reuses it.
+    messages = [{"role": "system", "content": system_prompt}]
+    for turn in (history or [])[-_MAX_HISTORY_TURNS:]:
+        content = str(turn.get("content", "") or "").strip()
+        if not content:
+            continue
+        role = "assistant" if turn.get("role") == "assistant" else "user"
+        messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_message})
 
-    try:
-        logger.info(f"Nemotron advisor trying primary model: {primary_model}")
-        # Build multi-turn messages from history + current user message
-        messages = [{"role": "system", "content": system_prompt}]
-        for turn in (history or []):
-            role = turn.get("role", "user")
-            openai_role = "assistant" if role == "assistant" else "user"
-            messages.append({"role": openai_role, "content": turn.get("content", "")})
-        messages.append({"role": "user", "content": user_message})
+    # The primary NIM model answers in ~1.5s warm but can take 15s+ on a cold
+    # start. The previous 3.5s ceiling turned that cold start into a guaranteed
+    # failure, so a live session silently degraded to the canned advisor engine
+    # after its first question — the whole point of the chat was lost.
+    client = OpenAI(
+        base_url=NVIDIA_BASE_URL,
+        api_key=NVIDIA_API_KEY,
+        timeout=_ADVISOR_ATTEMPT_TIMEOUT_S,
+        max_retries=0,
+    )
 
-        completion = client.chat.completions.create(
-            model=primary_model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1024,
-            timeout=3.5
-        )
-        text = completion.choices[0].message.content if completion.choices else "No response generated."
-        return {
-            "text": text,
-            "model": f"Nemotron ({primary_model})",
-            "provider": "NVIDIA NIM"
-        }
-    except Exception as e:
-        logger.warning(f"Nemotron advisor primary model failed ({e}), invoking dynamic quantitative advisor engine.")
+    deadline = time.monotonic() + _ADVISOR_TOTAL_BUDGET_S
+    models_to_try = list(dict.fromkeys(NVIDIA_FALLBACK_MODELS)) or ["mistralai/mistral-nemotron"]
+    last_error = None
+
+    if NVIDIA_API_KEY and not NVIDIA_API_KEY.startswith("dummy"):
+        def attempt(index: int, model_name: str):
+            """One hedged attempt, held back behind the models ahead of it."""
+            start_at = deadline - _ADVISOR_TOTAL_BUDGET_S + (index * _ADVISOR_HEDGE_DELAY_S)
+            wait = start_at - time.monotonic()
+            if wait > 0:
+                if done.wait(timeout=wait):
+                    return None   # An earlier model already answered.
+            remaining = deadline - time.monotonic()
+            if remaining < 3.0:
+                return None
+            logger.info(f"Nemotron advisor trying model: {model_name}")
+            completion = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2000,
+                timeout=min(_ADVISOR_ATTEMPT_TIMEOUT_S, remaining),
+            )
+            raw = completion.choices[0].message.content if completion.choices else ""
+            return _strip_reasoning(raw)
+
+        done = threading.Event()
+        pool = ThreadPoolExecutor(max_workers=len(models_to_try))
+        try:
+            futures = {pool.submit(attempt, i, m): m for i, m in enumerate(models_to_try)}
+            try:
+                for future in as_completed(futures, timeout=max(1.0, deadline - time.monotonic())):
+                    model_name = futures[future]
+                    try:
+                        text = future.result()
+                    except Exception as e:
+                        last_error = e
+                        logger.warning(f"Nemotron advisor model '{model_name}' failed ({e}).")
+                        continue
+                    if text:
+                        done.set()
+                        return {
+                            "text": text,
+                            "model": f"Nemotron ({model_name})",
+                            "provider": "NVIDIA NIM",
+                        }
+            except FuturesTimeoutError:
+                logger.warning("Nemotron advisor budget exhausted with no usable answer.")
+        finally:
+            # Losing attempts are left to expire against their own timeouts
+            # rather than holding up the response the user is waiting on.
+            done.set()
+            pool.shutdown(wait=False, cancel_futures=True)
+    else:
+        logger.warning("NVIDIA_API_KEY is not configured; using the local advisor engine.")
+
+    logger.warning(f"All Nemotron models unavailable (last error: {last_error}); invoking local advisor engine.")
 
     from app.services.advisor_engine import analyze_portfolio_and_generate_advice
     return analyze_portfolio_and_generate_advice(
         user_message=user_message,
         model_id="nemotron",
         portfolio_context=portfolio_context,
-        history=history
+        history=history,
     )
-

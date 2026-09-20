@@ -7,36 +7,16 @@ import {
   DollarSign, CheckCircle2, AlertTriangle, Layers
 } from 'lucide-react';
 
-// ─── Available Advisory Models ────────────────────────────────────────────────
-const ADVISOR_MODELS = [
-  {
-    id: 'gemini',
-    name: 'Gemini 2.0 Flash',
-    tagline: 'Recommended • Deep Personal Reasoning',
-    provider: 'Google Gemini',
-    badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-    iconColor: 'text-emerald-400',
-    description: 'Fastest institutional reasoning with complete multi-asset context.'
-  },
-  {
-    id: 'claude',
-    name: 'Claude 3.5 Sonnet',
-    tagline: 'Behavioral Finance & Habit Design',
-    provider: 'Anthropic Claude',
-    badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-    iconColor: 'text-amber-400',
-    description: 'Deep behavioral insights, cognitive bias detection, and cashflow optimization.'
-  },
-  {
-    id: 'nemotron',
-    name: 'NVIDIA Nemotron',
-    tagline: 'Quantitative Risk & Variance',
-    provider: 'NVIDIA NIM',
-    badgeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-    iconColor: 'text-cyan-400',
-    description: 'Wall Street institutional risk attribution, HHI concentration, and VaR modeling.'
-  }
-];
+// ─── Advisory Model ───────────────────────────────────────────────────────────
+const ADVISOR_MODEL = {
+  id: 'nemotron',
+  name: 'NVIDIA Nemotron',
+  tagline: 'Quantitative Risk & Variance',
+  provider: 'NVIDIA NIM',
+  badgeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+  iconColor: 'text-cyan-400',
+  description: 'Wall Street institutional risk attribution, HHI concentration, and VaR modeling.'
+};
 
 // ─── Markdown Formatter ───────────────────────────────────────────────────────
 const FormattedMessage = ({ content }) => {
@@ -143,7 +123,7 @@ const renderBoldText = (text) => {
 };
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
-const MessageBubble = ({ msg, selectedModelInfo }) => {
+const MessageBubble = ({ msg }) => {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -159,14 +139,7 @@ const MessageBubble = ({ msg, selectedModelInfo }) => {
     );
   }
 
-  // Model-specific badge style
-  const providerLabel = msg.provider || selectedModelInfo?.provider || 'EarningsPulse AI';
-  let badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
-  if (providerLabel.toLowerCase().includes('claude')) {
-    badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-  } else if (providerLabel.toLowerCase().includes('nemotron') || providerLabel.toLowerCase().includes('nvidia')) {
-    badgeClass = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
-  }
+  const providerLabel = msg.provider || ADVISOR_MODEL.provider;
 
   return (
     <div className="flex justify-start">
@@ -176,8 +149,8 @@ const MessageBubble = ({ msg, selectedModelInfo }) => {
         </div>
         <div className="space-y-1 w-full">
           <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider border shadow-sm uppercase font-mono">
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${badgeClass.includes('amber') ? 'bg-amber-400' : (badgeClass.includes('cyan') ? 'bg-cyan-400' : 'bg-emerald-400')}`} />
-            <span className={badgeClass.split(' ')[1]}>{providerLabel}</span>
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400" />
+            <span className="text-cyan-300">{providerLabel}</span>
           </div>
           <div className="bg-slate-900/95 border border-slate-800 rounded-2xl rounded-tl-sm px-5 py-4 shadow-xl">
             <FormattedMessage content={msg.content} />
@@ -216,7 +189,7 @@ const UploadGate = () => (
       </div>
       <h2 className="text-2xl font-extrabold text-white tracking-tight">AI Financial Advisor</h2>
       <p className="text-sm text-slate-400 mt-1">
-        Institutional-grade quantitative intelligence powered by Google Gemini, Anthropic Claude, and NVIDIA Nemotron.
+        Institutional-grade quantitative intelligence powered by NVIDIA Nemotron.
       </p>
     </div>
 
@@ -244,7 +217,7 @@ const UploadGate = () => (
             { icon: BarChart2, label: 'Single-Stock Risk & HHI', desc: 'Stress-test overweight holdings against earnings shocks' },
             { icon: TrendingUp, label: 'Rebalancing Roadmaps', desc: 'Core-satellite asset allocation optimization' },
             { icon: Zap, label: 'Spending Leak Detection', desc: 'Identify and eliminate recurring capital drains' },
-            { icon: ShieldAlert, label: 'Model Freedom', desc: 'Switch freely between Gemini 2.0, Claude, and Nemotron' },
+            { icon: Layers, label: 'Grounded Reasoning', desc: 'Every answer anchored to your real holdings and ledger' },
           ].map((f, i) => {
             const FIcon = f.icon;
             return (
@@ -275,7 +248,6 @@ const TabAdvisor = () => {
   const { uploadedPortfolio, hasPersonalData } = useAppAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gemini');
   const [isLoading, setIsLoading] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [error, setError] = useState(null);
@@ -344,7 +316,7 @@ const TabAdvisor = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          model: selectedModel,
+          model: ADVISOR_MODEL.id,
           portfolio_context: buildPortfolioContext(),
           history: historyForApi
         })
@@ -383,7 +355,7 @@ const TabAdvisor = () => {
     setError(null);
   };
 
-  const currentModelInfo = ADVISOR_MODELS.find(m => m.id === selectedModel) || ADVISOR_MODELS[0];
+  const currentModelInfo = ADVISOR_MODEL;
 
   return (
     <div className="space-y-5">
@@ -396,7 +368,7 @@ const TabAdvisor = () => {
           <div>
             <div className="flex items-center space-x-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2">
               <Sparkles className="h-3.5 w-3.5" />
-              <span>Multi-Model AI Financial Advisor</span>
+              <span>NVIDIA Nemotron AI Financial Advisor</span>
             </div>
             <h2 className="text-2xl font-extrabold text-white tracking-tight">AI Financial Advisor</h2>
             <p className="text-sm text-slate-400 mt-1 max-w-xl">
@@ -404,26 +376,12 @@ const TabAdvisor = () => {
             </p>
           </div>
 
-          {/* Model Switcher Pill Group */}
+          {/* Active Model Badge */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
-            <div className="flex items-center p-1 rounded-xl bg-slate-900/90 border border-slate-800 shadow-inner">
-              {ADVISOR_MODELS.map((m) => {
-                const isSelected = selectedModel === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setSelectedModel(m.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center space-x-1.5 ${
-                      isSelected
-                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <span>{m.name}</span>
-                  </button>
-                );
-              })}
+            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-inner">
+              <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+              <span className="text-xs font-semibold text-white">{ADVISOR_MODEL.name}</span>
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">{ADVISOR_MODEL.provider}</span>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -451,7 +409,7 @@ const TabAdvisor = () => {
           </div>
         </div>
 
-        {/* Selected Model Description Banner */}
+        {/* Active Model Description Banner */}
         <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center space-x-2">
             <span className={`inline-block h-2 w-2 rounded-full ${currentModelInfo.iconColor.replace('text-', 'bg-')}`} />
@@ -530,7 +488,7 @@ const TabAdvisor = () => {
           )}
 
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} msg={msg} selectedModelInfo={currentModelInfo} />
+            <MessageBubble key={msg.id} msg={msg} />
           ))}
 
           {isLoading && <TypingIndicator modelName={currentModelInfo.name} />}

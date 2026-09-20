@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["News"])
 async def route_news(request: RouteNewsRequest):
     """
     Ingests breaking financial news or press releases.
-    Uses NVIDIA Nemotron / Claude to classify them into market impact tiers (High, Medium, Low),
+    Uses NVIDIA Nemotron to classify them into market impact tiers (High, Medium, Low),
     identifies material risk anomalies, and outputs actionable asset allocation guidance.
     If the headline references a company, enriches context with live EDGAR data before routing.
     """

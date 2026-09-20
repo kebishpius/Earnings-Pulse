@@ -5,32 +5,41 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger("earningspulse.advisor_engine")
 
+MODEL_LABEL = "Nemotron (offline quantitative engine)"
+PROVIDER_LABEL = "NVIDIA NIM"
+
+
 def analyze_portfolio_and_generate_advice(
     user_message: str,
-    model_id: str = "gemini",
+    model_id: str = "nemotron",
     portfolio_context: Optional[Dict[str, Any]] = None,
     history: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
-    World-class quantitative financial advisor reasoning engine.
-    Generates deeply tailored, mathematically grounded financial advisory responses
-    based on the user's actual stock holdings, transaction ledger, and conversation history.
-    Provides customized perspectives tailored to Gemini, Nemotron, or Claude personas.
+    Deterministic quantitative advisory engine.
+
+    This is the offline safety net for /api/ai-advisor: it runs only when every
+    NVIDIA Nemotron NIM model is unreachable. It is template-driven, so it can
+    restate the user's real numbers but cannot hold a conversation — the answers
+    say so rather than passing themselves off as live model output.
+
+    `model_id` is accepted for call-site compatibility and ignored; NVIDIA
+    Nemotron is the only advisory model.
     """
     context = portfolio_context or {}
     holdings = context.get("holdings", [])
     transactions = context.get("transactions", [])
-    
+
     # ── 1. Quantitative Portfolio Metrics ─────────────────────────────────────
     total_long_val = sum(float(h.get("current_value", 0)) for h in holdings if float(h.get("current_value", 0)) > 0)
     total_short_val = sum(abs(float(h.get("current_value", 0))) for h in holdings if float(h.get("current_value", 0)) < 0)
     gross_exposure = total_long_val + total_short_val
     net_portfolio_val = total_long_val - total_short_val
-    
+
     # Sort holdings by absolute exposure
     sorted_holdings = sorted(holdings, key=lambda x: abs(float(x.get("current_value", 0))), reverse=True)
     top_holding = sorted_holdings[0] if sorted_holdings else None
-    
+
     # Compute Herfindahl-Hirschman Index (HHI) for concentration
     # HHI > 2500 indicates high concentration risk
     hhi = 0.0
@@ -77,8 +86,16 @@ def analyze_portfolio_and_generate_advice(
     # ── 3. Conversational Context & Intent Detection ──────────────────────────
     msg_lower = user_message.lower().strip()
     prev_turns = len(history or [])
-    is_followup = prev_turns > 0
-    followup_lead = f"Continuing our advisory dialogue (exchange #{prev_turns + 1}):\n\n" if is_followup else ""
+
+    # This engine answers each question from scratch — it has no memory of the
+    # thread. Saying so is better than an "as we discussed" opener it cannot
+    # actually honour, which is what made repeat questions read as canned.
+    offline_notice = (
+        "> *Live Nemotron reasoning is temporarily unreachable, so this is the offline "
+        "quantitative engine working straight off your uploaded data. It answers each "
+        "question independently — re-send your question in a moment for a full "
+        "conversational reply.*\n\n"
+    )
 
     # Check for specific ticker queries in holdings or major stocks
     mentioned_tickers = []
@@ -92,14 +109,13 @@ def analyze_portfolio_and_generate_advice(
     if mentioned_tickers and any(k in msg_lower for k in ["should i", "sell", "buy", "holding", "trim", "add", "what about", "think of", "outlook", "position"]):
         target_tkr = mentioned_tickers[0]
         matching_h = next((h for h in holdings if str(h.get("symbol", "")).upper() == target_tkr), None)
-        
+
         has_pos = matching_h is not None
         pos_val = float(matching_h.get("current_value", 0)) if has_pos else 0.0
         pos_pct = float(matching_h.get("allocation_pct", 0)) if has_pos else (pos_val / gross_exposure * 100 if gross_exposure > 0 else 0)
         is_short = pos_val < 0
 
-        if model_id == "nemotron":
-            text = f"""{followup_lead}### **NVIDIA Nemotron Quantitative Position Dossier: {target_tkr}**
+        text = f"""{offline_notice}### **Quantitative Position Dossier: {target_tkr}**
 
 **1. Exposure & Portfolio Weighting:**
 - **Current Position**: {"Owned" if has_pos else "Not currently held in portfolio"}
@@ -114,55 +130,18 @@ def analyze_portfolio_and_generate_advice(
 **3. Actionable Tactical Mandate:**
 - {'**Prudential Trim Protocol**: Execute a structured limit order to trim $' + f"{abs(pos_val) * 0.25:,.2f} (25% of position) to bring weighting back towards 15–20%." if pos_pct > 20 else '**Maintain Allocation**: Current weighting is within risk parameters. Place trailing stop-loss at -8% from 52-week highs.'}
 - Reallocate any harvested liquidity into broad-index anchors (VOO/VTI) or short-term Treasury equivalents yielding ~4.8% risk-free."""
-            model_label = "Nemotron (mistralai/mistral-nemotron)"
-            provider = "NVIDIA NIM"
-
-        elif model_id == "claude":
-            text = f"""{followup_lead}### **Claude Position Insight: {target_tkr}**
-
-**Current Context in Your Portfolio:**
-You currently hold **${abs(pos_val):,.2f}** in `{target_tkr}`, which accounts for **{pos_pct:.1f}%** of your total portfolio.
-
-**Behavioral & Strategic Perspective:**
-- **The Endowment Effect**: When a high-profile stock like `{target_tkr}` performs well, our instinct is to let it ride indefinitely. But high concentration turns what feels like high conviction into high fragility.
-- **Asymmetric Downside**: At a {pos_pct:.1f}% allocation, a 20% pullback in `{target_tkr}` will wipe out **${abs(pos_val) * 0.20:,.2f}** of your hard-earned capital.
-
-**Concrete Next Steps Today:**
-1. **Define Your Exit Rules Ahead of Time**: Rather than making emotional decisions during market swings, decide today what percentage you are comfortable holding long term.
-2. **Take Partial Profits**: If `{target_tkr}` has gained significantly, consider taking 10–20% off the table to lock in real purchasing power."""
-            model_label = "Claude (claude-sonnet-4-5)"
-            provider = "Anthropic"
-
-        else:
-            text = f"""{followup_lead}### **Google Gemini Grounded Analysis: {target_tkr}**
-
-**Position Summary:**
-- **Symbol**: `{target_tkr}`
-- **Position Size**: **${abs(pos_val):,.2f}** ({pos_pct:.1f}% of total portfolio)
-- **Portfolio Total**: ${net_portfolio_val:,.2f} across {len(holdings)} holdings
-
-**Core Observations:**
-1. **Allocation Health**: {"[!] Position exceeds 20% prudential guideline. Highly vulnerable to single-stock earnings gaps." if pos_pct > 20 else "[OK] Sized appropriately within standard multi-asset portfolio limits."}
-2. **Sector Exposure**: Technology/Growth beta requires balancing against stable cash-flow assets.
-
-**Recommended Action Steps:**
-- Rebalance exposure to target < 20% to mitigate drawdowns.
-- Channel proceeds into broad core ETFs (VOO/SCHD) to preserve capital compounding."""
-            model_label = "Gemini 2.0 Flash"
-            provider = "Google Gemini"
 
     # ── SCENARIO 2: Spending / Expenses / Subscriptions / Burn Rate ─────────────
     elif any(k in msg_lower for k in ["spending", "spend", "expense", "overspend", "subscription", "leak", "cash flow", "budget", "outflow"]):
         top_cats_str = ", ".join(f"**{c[0]}** (${c[1]:,.2f}, {c[1]/total_spend*100:.1f}%)" for c in sorted_categories[:3]) if total_spend > 0 else "None recorded"
-        
+
         subs_list = []
         for s in flagged_subs[:5]:
             amt = abs(float(s.get("amount", 0)))
             subs_list.append(f"- **{s.get('description')}**: ${amt:,.2f}/mo (**${amt*12:,.2f}/yr**)")
         subs_formatted = "\n".join(subs_list) if subs_list else "- *No recurring subscriptions identified.*"
 
-        if model_id == "nemotron":
-            text = f"""{followup_lead}### **NVIDIA Nemotron Quantitative Cashflow & Capital Drag Audit**
+        text = f"""{offline_notice}### **Quantitative Cashflow & Capital Drag Audit**
 
 **1. Ledger Inflow vs Outflow Balance:**
 - **Logged Outflows (Spend)**: **${total_spend:,.2f}** across {len(outflows)} transactions
@@ -180,48 +159,6 @@ We identified **{len(flagged_subs)} recurring items** creating **${monthly_sub_t
 **4. Institutional Action Mandate:**
 1. **Immediate Purge**: Terminate redundant subscriptions to instantly recapture **${annual_sub_leak:,.2f}/year**.
 2. **Discretionary Speedbump**: Enforce a mandatory 48-hour authorization delay for any non-recurring charge above $150."""
-            model_label = "Nemotron (mistralai/mistral-nemotron)"
-            provider = "NVIDIA NIM"
-
-        elif model_id == "claude":
-            text = f"""{followup_lead}### **Claude Behavioral Spending & Cashflow Breakdown**
-
-**Your Real Numbers:**
-Over your recent recorded activity, you've spent **${total_spend:,.2f}** against **${total_income:,.2f}** in income, resulting in a net monthly flow of **${net_cashflow:+,.2f}**.
-
-**Where Your Money is Leaking:**
-{subs_formatted}
-
-**Behavioral Observations:**
-- **Micro-Friction Invisibility**: Recurring subscriptions of $20–$60 slip past our attention because they fall below our daily pain threshold. But together they represent **${annual_sub_leak:,.2f} every year**.
-- **Discretionary Drift**: Your top category is {sorted_categories[0][0] if sorted_categories else 'General Spending'} (${sorted_categories[0][1] if sorted_categories else 0:,.2f}).
-
-**Two Actions You Can Take Today:**
-1. Log in and cancel at least two subscriptions you haven't actively used this month.
-2. Automate a scheduled transfer of $100/week into your investment portfolio the day after each paycheck arrives."""
-            model_label = "Claude (claude-sonnet-4-5)"
-            provider = "Anthropic"
-
-        else:
-            text = f"""{followup_lead}### **Google Gemini Cash Flow & Expense Audit**
-
-**Monthly Cash Flow Overview:**
-- **Total Tracked Outflows**: **${total_spend:,.2f}**
-- **Total Tracked Inflows**: **${total_income:,.2f}**
-- **Net Balance**: **${net_cashflow:+,.2f}**
-
-**Identified Recurring Leaks:**
-{subs_formatted}
-- **Total Annual Leak**: **${annual_sub_leak:,.2f}/year**
-
-**Top Spending Drivers:**
-{top_cats_str}
-
-**Immediate Priority Actions:**
-1. Cancel unused digital memberships to reclaim capital.
-2. Direct excess savings into low-cost index funds (e.g., VOO) to maximize compounding."""
-            model_label = "Gemini 2.0 Flash"
-            provider = "Google Gemini"
 
     # ── SCENARIO 3: Portfolio Risk / Concentration / Vulnerabilities ────────────
     elif any(k in msg_lower for k in ["risk", "concentrat", "vulnerab", "drawdown", "safe", "danger", "beta", "var"]):
@@ -229,8 +166,7 @@ Over your recent recorded activity, you've spent **${total_spend:,.2f}** against
         top_pct = (abs(float(top_holding.get("current_value", 0))) / gross_exposure * 100) if (top_holding and gross_exposure > 0) else 0.0
         top_val = abs(float(top_holding.get("current_value", 0))) if top_holding else 0.0
 
-        if model_id == "nemotron":
-            text = f"""{followup_lead}### **NVIDIA Nemotron Quantitative Portfolio Risk Audit**
+        text = f"""{offline_notice}### **Quantitative Portfolio Risk Audit**
 
 **1. Concentration & Structural Variance:**
 - **Portfolio NAV**: **${net_portfolio_val:,.2f}** across {len(holdings)} active holdings.
@@ -245,31 +181,10 @@ Over your recent recorded activity, you've spent **${total_spend:,.2f}** against
 **3. Hedging & Optimization Roadmap:**
 1. **De-risk `{top_name}`**: Trim down to target < 20% gross allocation.
 2. **Establish Fixed-Income / Treasury Anchor**: Allocate at least 10–15% of NAV into short Treasuries/SPAXX to establish downside buffer and deploy dry powder during corrections."""
-            model_label = "Nemotron (mistralai/mistral-nemotron)"
-            provider = "NVIDIA NIM"
-
-        else:
-            text = f"""{followup_lead}### **Portfolio Risk & Concentration Diagnostic**
-
-**Current Exposure Summary:**
-- **Total Assets**: **${net_portfolio_val:,.2f}** across {len(holdings)} holdings.
-- **Top Position Concentration**: **{top_name}** accounts for **{top_pct:.1f}%** (${top_val:,.2f}).
-- **Risk Evaluation**: {"[!] OVERCONCENTRATED. Single position exceeds institutional 20% limit." if top_pct > 20 else "[OK] Well-balanced position sizing."}
-
-**Downside Exposure Analysis:**
-- Having {top_pct:.1f}% in `{top_name}` leaves your total net worth vulnerable to single-company volatility and sector rotations.
-- If `{top_name}` experiences a standard 20% market correction, your balance falls by **${top_val * 0.20:,.2f}**.
-
-**Next Steps to De-Risk:**
-1. Scale down top exposure gradually over 2–4 weeks.
-2. Move proceeds into core diversified index funds (VOO, VTI, BND)."""
-            model_label = "Gemini 2.0 Flash" if model_id == "gemini" else "Claude (claude-sonnet-4-5)"
-            provider = "Google Gemini" if model_id == "gemini" else "Anthropic"
 
     # ── SCENARIO 4: Rebalancing Plan & Asset Allocation ─────────────────────────
     elif any(k in msg_lower for k in ["rebalance", "allocation", "diversify", "weights", "asset mix"]):
-        if model_id == "nemotron":
-            text = f"""{followup_lead}### **NVIDIA Nemotron Quantitative Rebalancing Plan**
+        text = f"""{offline_notice}### **Quantitative Rebalancing Plan**
 
 **1. Current Asset Structure (NAV: ${net_portfolio_val:,.2f}):**
 - **Equities / Growth**: ${asset_types.get('Equity', 0):,.2f} ({(asset_types.get('Equity', 0)/gross_exposure*100) if gross_exposure>0 else 0:.1f}%)
@@ -285,26 +200,10 @@ Over your recent recorded activity, you've spent **${total_spend:,.2f}** against
 **3. Execution Tranches:**
 - **Step 1**: Trim any single holding exceeding 20% allocation.
 - **Step 2**: Direct fresh monthly savings into lagging asset categories without triggering unnecessary taxable capital gains."""
-            model_label = "Nemotron (mistralai/mistral-nemotron)"
-            provider = "NVIDIA NIM"
-
-        else:
-            text = f"""{followup_lead}### **Target Asset Rebalancing Strategy**
-
-**Recommended Target Portfolio Framework:**
-1. **Core Market Foundation (55–65%)**: Low-cost index ETFs (VOO, VTI, QQQM)
-2. **Individual Growth Opportunities (20–25%)**: High-conviction companies
-3. **Safety & Cash Reserve (10–15%)**: High-yield cash / Treasury bills
-
-**Execution Strategy:**
-- Rather than selling all your winners at once and incurring capital gains taxes, direct future cash flows into underweight asset classes.
-- Set a semi-annual rebalancing reminder to review position drift."""
-            model_label = "Gemini 2.0 Flash" if model_id == "gemini" else "Claude (claude-sonnet-4-5)"
-            provider = "Google Gemini" if model_id == "gemini" else "Anthropic"
 
     # ── SCENARIO 5: Deploying New Capital / $10,000 Allocation ─────────────────
     elif any(k in msg_lower for k in ["10,000", "10000", "deploy", "invest today", "lump sum", "new money", "where to invest"]):
-        text = f"""{followup_lead}### **$10,000 Capital Allocation Blueprint**
+        text = f"""{offline_notice}### **$10,000 Capital Allocation Blueprint**
 
 Based on your current portfolio posture (NAV: **${net_portfolio_val:,.2f}**, {len(holdings)} holdings), here is a disciplined allocation roadmap:
 
@@ -321,8 +220,6 @@ Based on your current portfolio posture (NAV: **${net_portfolio_val:,.2f}**, {le
 - Reserved for asymmetric growth plays.
 
 **Execution Rule**: Deploy 50% immediately, and dollar-cost average the remaining 50% across two bi-weekly tranches to mitigate timing risk."""
-        model_label = "Nemotron (mistralai/mistral-nemotron)" if model_id == "nemotron" else ("Gemini 2.0 Flash" if model_id == "gemini" else "Claude (claude-sonnet-4-5)")
-        provider = "NVIDIA NIM" if model_id == "nemotron" else ("Google Gemini" if model_id == "gemini" else "Anthropic")
 
     # ── SCENARIO 6: General Financial Health & Portfolio Review ────────────────
     else:
@@ -330,8 +227,7 @@ Based on your current portfolio posture (NAV: **${net_portfolio_val:,.2f}**, {le
         top_h_pct = (abs(float(top_holding.get("current_value", 0))) / gross_exposure * 100) if (top_holding and gross_exposure > 0) else 0.0
         top_h_val = abs(float(top_holding.get("current_value", 0))) if top_holding else 0.0
 
-        if model_id == "nemotron":
-            text = f"""{followup_lead}### **NVIDIA Nemotron Institutional Portfolio Audit**
+        text = f"""{offline_notice}### **Institutional Portfolio Audit**
 
 **Comprehensive Health Diagnostics for:** *"{user_message}"*
 
@@ -350,50 +246,9 @@ Based on your current portfolio posture (NAV: **${net_portfolio_val:,.2f}**, {le
 1. **Trim Overweight Exposure**: Cap any single position at 20% maximum to insulate against single-company drawdowns.
 2. **Audit Discretionary Leaks**: Eliminate redundant recurring services to reclaim up to **${annual_sub_leak:,.2f}/year** in compounding capital.
 3. **Liquidity Buffer**: Ensure 3–6 months of fixed expenditures are secured in liquid short-duration cash equivalents."""
-            model_label = "Nemotron (mistralai/mistral-nemotron)"
-            provider = "NVIDIA NIM"
-
-        elif model_id == "claude":
-            text = f"""{followup_lead}### **Claude Personal Financial Advisory Synthesis**
-
-**Answering your question:** *"{user_message}"*
-
-**Your Complete Financial Snapshot:**
-- **Portfolio Value**: **${net_portfolio_val:,.2f}** across {len(holdings)} holdings.
-- **Largest Position**: **{top_h_symbol}** ({top_h_pct:.1f}% of total).
-- **Recent Net Cash Flow**: **${net_cashflow:+,.2f}** (${total_income:,.2f} in, ${total_spend:,.2f} out).
-
-**Key Takeaways & Perspectives:**
-1. **Simplify & Protect**: Wealth is built not by trying to predict the next big mover, but by protecting your base. Your largest single position is {top_h_symbol} at {top_h_pct:.1f}% — keeping an eye on this will prevent unexpected drawdowns.
-2. **Cash Flow Freedom**: You have **${annual_sub_leak:,.2f}/year** in recurring subscriptions. Trimming even half of this frees up capital you can direct into long-term index compounding.
-
-**Your Recommended Action Today:**
-Conduct a 15-minute review to cancel unused subscriptions and set an automatic transfer into your core investment account."""
-            model_label = "Claude (claude-sonnet-4-5)"
-            provider = "Anthropic"
-
-        else:
-            text = f"""{followup_lead}### **Google Gemini Grounded Financial Advisory**
-
-**Analysis in response to:** *"{user_message}"*
-
-**Portfolio Health Snapshot:**
-- **Portfolio Value**: **${net_portfolio_val:,.2f}** ({len(holdings)} holdings)
-- **Top Holding**: **{top_h_symbol}** at **{top_h_pct:.1f}%** (${top_h_val:,.2f})
-- **Net Cash Flow**: **${net_cashflow:+,.2f}** (${total_income:,.2f} in vs ${total_spend:,.2f} out)
-
-**Identified Strategic Areas:**
-1. **Concentration Risk**: {"Single-stock exposure in " + top_h_symbol + " exceeds 20%." if top_h_pct > 20 else "Holdings are diversified across multiple positions."}
-2. **Cash Flow Efficiency**: Recurring subscriptions total **${annual_sub_leak:,.2f}/year**.
-
-**Priority Next Steps:**
-1. Rebalance concentrated holdings toward broad market index funds (e.g., VOO).
-2. Eliminate inactive subscriptions to optimize monthly compounding."""
-            model_label = "Gemini 2.0 Flash"
-            provider = "Google Gemini"
 
     return {
         "text": text,
-        "model": model_label,
-        "provider": provider
+        "model": MODEL_LABEL,
+        "provider": PROVIDER_LABEL
     }

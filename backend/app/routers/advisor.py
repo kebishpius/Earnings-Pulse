@@ -38,7 +38,7 @@ class PortfolioContext(BaseModel):
 
 class AdvisorRequest(BaseModel):
     message: str
-    model: str = "gemini"   # "gemini" | "nemotron" | "claude"
+    model: str = "nemotron"   # NVIDIA Nemotron is the only advisory model
     portfolio_context: Optional[PortfolioContext] = None
     history: Optional[List[Dict[str, Any]]] = None
 
@@ -83,8 +83,8 @@ class ParseDataResponse(BaseModel):
 @router.post("/ai-advisor", response_model=AdvisorResponse)
 async def ai_advisor(request: AdvisorRequest):
     """
-    Routes a financial advisory question to the selected AI model
-    (Gemini, Nemotron, or Claude) with optional personal portfolio context.
+    Routes a financial advisory question to NVIDIA Nemotron with optional
+    personal portfolio context and the running conversation history.
     """
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
@@ -97,44 +97,30 @@ async def ai_advisor(request: AdvisorRequest):
             "last_audit": request.portfolio_context.last_audit.model_dump() if request.portfolio_context.last_audit else None
         }
 
-    model_choice = request.model.lower().strip()
     history = request.history or []
-    logger.info(f"/api/ai-advisor: model={model_choice}, msg='{request.message[:60]}...', history_len={len(history)}")
+    logger.info(f"/api/ai-advisor: msg='{request.message[:60]}...', history_len={len(history)}")
 
+    # advise_with_nemotron walks the whole NIM model chain and already degrades
+    # to the local advisor engine on its own, so this only catches the
+    # unexpected — an import error or a malformed portfolio payload.
     try:
-        if model_choice == "claude":
-            from app.services.claude_service import advise_with_claude
-            result = advise_with_claude(request.message, portfolio_dict, history=history)
-
-        elif model_choice == "nemotron":
-            from app.services.nemotron_service import advise_with_nemotron
-            result = advise_with_nemotron(request.message, portfolio_dict, history=history)
-
-        else:  # default: gemini
-            from app.services.gemini_service import advise_with_gemini
-            result = advise_with_gemini(request.message, portfolio_dict, history=history)
-
-        return AdvisorResponse(
-            text=result.get("text", "No response generated."),
-            model=result.get("model", model_choice.title()),
-            provider=result.get("provider", "AI"),
-        )
-
+        from app.services.nemotron_service import advise_with_nemotron
+        result = advise_with_nemotron(request.message, portfolio_dict, history=history)
     except Exception as e:
-        logger.error(f"AI advisor error for model={model_choice}: {e}, falling back to dynamic advisor engine.")
+        logger.error(f"AI advisor error: {e}, falling back to dynamic advisor engine.")
         from app.services.advisor_engine import analyze_portfolio_and_generate_advice
         result = analyze_portfolio_and_generate_advice(
             user_message=request.message,
-            model_id=model_choice,
+            model_id="nemotron",
             portfolio_context=portfolio_dict,
             history=history
         )
-        return AdvisorResponse(
-            text=result.get("text", "No response generated."),
-            model=result.get("model", model_choice.title()),
-            provider=result.get("provider", "AI"),
-        )
 
+    return AdvisorResponse(
+        text=result.get("text", "No response generated."),
+        model=result.get("model", "Nemotron"),
+        provider=result.get("provider", "NVIDIA NIM"),
+    )
 
 
 @router.post("/upload-data/parse", response_model=ParseDataResponse)
