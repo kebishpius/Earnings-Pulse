@@ -172,15 +172,25 @@ async def parse_uploaded_data(request: ParseDataRequest):
                     allocation_pct=float(h.get("allocation_pct", 0.0))
                 ))
 
+        EXPENSE_CATS_LOWER = {
+            'subscription', 'food & dining', 'dining', 'food', 'restaurants', 'groceries',
+            'travel', 'shopping', 'entertainment', 'utilities', 'fitness', 'healthcare',
+            'cloud & infra', 'ai tools', 'finance sub', 'fees', 'trading outflow', 'personal'
+        }
+
         for i, t in enumerate(raw_txs):
             if isinstance(t, dict):
-                # Signed: negative is cash out, positive is cash in. abs() here
-                # is what turned every sale and paycheck into spending.
+                amt = float(t.get("amount", 0))
+                desc = str(t.get("description", f"Transaction {i+1}"))
+                cat = str(t.get("category", "Other"))
+                # Guard against positive numbers for expenses/subscriptions
+                if amt > 0 and cat.lower() in EXPENSE_CATS_LOWER:
+                    amt = -abs(amt)
                 transactions.append(ParsedTransaction(
                     date=str(t.get("date", "")),
-                    description=str(t.get("description", f"Transaction {i+1}")),
-                    amount=float(t.get("amount", 0)),
-                    category=str(t.get("category", "Other"))
+                    description=desc,
+                    amount=amt,
+                    category=cat
                 ))
 
         # If holdings were parsed without allocation percentages, compute them
@@ -254,54 +264,86 @@ async def parse_uploaded_data(request: ParseDataRequest):
             s = re.sub(r"^[^\d.,()+-]+", "", str(raw or "").strip())
             return bool(re.match(r"^[-+(]", s)) or bool(re.search(r"\d\s*-$", s))
 
-        # Ordered, first match wins: "buy to cover" is a purchase rather than a
-        # cover, and "margin interest" is a charge rather than interest income.
+        # Ordered, first match wins: differentiates security trades from retail card transactions
         ACTION_SIGNS = [
             (r"margin interest|interest (charge|paid|expense)|advisory fee|management fee", -1),
             (r"buy to (open|close|cover)|bought to cover|cover short", -1),
             (r"sell to (open|close)|short sale|sold short", 1),
             (r"dividend|distribution|capital gain|coupon|interest", 1),
-            (r"\bsells?\b|\bsold\b|\bsale\b|redemption|redeem|proceeds|liquidat", 1),
-            (r"\bbuys?\b|\bbought\b|\bbot\b|purchase|reinvest", -1),
+            (r"\b(sell|sold|selling)\b|redemption|redeem|proceeds|liquidat", 1),
+            (r"\b(buy|buys|bought|bot|purchase|reinvest)\b", -1),
             (r"deposit|transfer in|incoming|refund|reimburs|rebate|cash ?back|payroll|salary|\bincome\b|\bcredit\b|received", 1),
             (r"withdraw|transfer out|outgoing|\bfees?\b|commission|\btax\b|\bcharges?\b|payment|\bdebit\b|expense", -1),
+            (r"\b(sale|pos sale|card sale|debit sale|point of sale)\b", -1),
         ]
 
-        def sign_from_action(raw):
-            """Direction of an action / activity / transaction-type cell. Never
-            applied to a free-text description: "Best Buy" would flip a purchase
-            into income."""
+        EXPENSE_CATEGORIES_SET = {
+            'subscription', 'food & dining', 'dining', 'food', 'restaurants', 'groceries',
+            'travel', 'shopping', 'entertainment', 'utilities', 'fitness', 'healthcare',
+            'cloud & infra', 'ai tools', 'finance sub', 'fees', 'trading outflow', 'personal'
+        }
+
+        def sign_from_action(raw, symbol=""):
             s = str(raw or "").lower().strip()
             if not s:
                 return 0
+            if re.fullmatch(r"sale|pos sale|debit sale|card sale", s):
+                return 1 if (symbol and symbol != "USD" and "cash" not in symbol.lower()) else -1
             for pattern, sign in ACTION_SIGNS:
-                if re.search(pattern, s):
+                if re.search(pattern, s, re.I):
                     return sign
+            return 0
+
+        def sign_from_description(desc=""):
+            s = str(desc or "").lower().strip()
+            if not s:
+                return 0
+            if re.search(r"payroll|salary|direct dep|paycheck|bonus|tax refund|dividend|interest (paid|earned|credit|income)|cash ?back|rebate|zelle from|venmo from", s, re.I):
+                return 1
+            if re.search(r"\b(sell|sold|selling)\b.*\b([A-Z]{1,5}|shares?|stock|crypto)\b", s, re.I):
+                return 1
+            if re.search(r"\b(buy|buys|buying|bought|purchas(e|es|ing|ed)?)\b.*\b([A-Z]{1,5}|shares?|stock|crypto)\b", s, re.I):
+                return -1
+            if re.search(r"payment to|purchase|atm withdrawal|withdrawal|wire out|\bfee\b|subscription|\bsub\b|uber|lyft|starbucks|amazon|walmart|target|netflix|spotify|equinox|gym|aws|cloud|chatgpt|midjourney|doordash|instacart|restaurant|cafe|coffee|grocery|groceries|electric|water|gas bill|utility|utilities|rent\b|mortgage|insurance|airline|flight|hotel|airbnb|apple\.com/bill|google \*", s, re.I):
+                return -1
             return 0
 
         def sign_from_indicator(raw):
             s = str(raw or "").lower().strip()
-            if re.fullmatch(r"d|dr|debit|w|withdrawal|out", s):
+            if re.fullmatch(r"d|dr|debit|w|withdrawal|out|payment", s):
                 return -1
-            if re.fullmatch(r"c|cr|credit|deposit|in", s):
+            if re.fullmatch(r"c|cr|credit|deposit|in|refund", s):
                 return 1
             return 0
 
         def sign_from_side(raw):
             s = str(raw or "").lower().strip()
-            if re.fullmatch(r"short|shrt|s|sell|sld", s):
+            if re.fullmatch(r"short|shrt|s|sell|sold|selling|sld", s):
                 return -1
-            if re.fullmatch(r"long|lng|l|buy|bot", s):
+            if re.fullmatch(r"long|lng|l|buy|bot|bought", s):
                 return 1
             return 0
 
-        def derive_category(action, amount):
-            if re.search(r"dividend|distribution|interest|coupon|capital gain", action, re.I):
-                return "Income"
-            if re.search(r"\bfees?\b|commission|\btax\b", action, re.I):
+        def derive_category(action="", amount=0, description=""):
+            combined = f"{action} {description}".lower()
+            if re.search(r"subscription|spotify|netflix|midjourney|chatgpt|aws|cloud|gym|equinox|bloomberg|adobe|prime|hulu|disney|github|patreon", combined, re.I):
+                return "Subscription"
+            if re.search(r"starbucks|doordash|uber eats|grubhub|restaurant|cafe|coffee|trader joe|whole foods|grocer|food|dining|chipotle|mcdonald", combined, re.I):
+                return "Food & Dining"
+            if re.search(r"uber|lyft|airline|flight|hotel|airbnb|delta|united|gas|shell|chevron|parking|transit", combined, re.I):
+                return "Travel"
+            if re.search(r"amazon|target|walmart|costco|ebay|best buy|apple store|ikea|shopping", combined, re.I):
+                return "Shopping"
+            if re.search(r"electric|water|gas bill|utility|utilities|internet|comcast|verizon|rent|mortgage", combined, re.I):
+                return "Utilities"
+            if re.search(r"\bfees?\b|commission|\btax\b|interest charge|atm fee", combined, re.I):
                 return "Fees"
-            if re.search(r"buy|sell|sold|bought|trade|purchase|reinvest|redeem", action, re.I):
+            if re.search(r"buy|sell|sold|selling|bought|trade|shares?|stock|reinvest|redeem|dividend|distribution", combined, re.I):
+                if re.search(r"dividend|distribution|interest|coupon|capital gain", combined, re.I):
+                    return "Income"
                 return "Investment"
+            if re.search(r"payroll|salary|direct dep|paycheck|bonus|refund|rebate|cashback", combined, re.I):
+                return "Income"
             return "Income" if amount > 0 else "Other"
 
         lines = [line for line in request.raw_text.strip().splitlines() if line.strip()]
@@ -478,20 +520,31 @@ async def parse_uploaded_data(request: ParseDataRequest):
 
                 if not amount:
                     return None
+
+                sym = str(pick(row, "Symbol", "Ticker") or "").strip().upper()
+                action_raw = str(pick(row, *ACTION_COLS) or "").strip()
+                desc_raw = str(pick(row, "Description", "Merchant", "Name", "Payee", "Memo", "Details") or "").strip()
+                cat_raw = str(pick(row, "Category", "Classification") or "").strip().lower()
+
+                action_sign = sign_from_action(action_raw, sym) if action_raw else 0
+                indicator_sign = sign_from_indicator(pick(row, *INDICATOR_COLS))
+                desc_sign = sign_from_description(desc_raw)
+
+                if action_sign != 0:
+                    return action_sign * abs(amount)
+                if indicator_sign != 0:
+                    return indicator_sign * abs(amount)
                 if stated:
                     return amount
+                if desc_sign != 0:
+                    return desc_sign * abs(amount)
+                if cat_raw and cat_raw in EXPENSE_CATEGORIES_SET:
+                    return -abs(amount)
 
-                derived = sign_from_indicator(pick(row, *INDICATOR_COLS)) or sign_from_action(pick(row, *ACTION_COLS))
-                return derived * abs(amount) if derived != 0 else amount
+                return amount
 
             amounts = [signed_amount(r) for r in rows]
 
-            # An expense-only export — every number positive, no sign, no
-            # direction column, no Buy/Sell — is a list of outflows. Only assume
-            # that when the file says nothing itself: on a statement that does
-            # sign its rows, an unsigned positive is genuinely a credit and stays
-            # income. Taking abs() of everything turned a paycheck into a flagged
-            # anomaly, and dropping the positives lost it altogether.
             states_direction = (
                 has_col(*INDICATOR_COLS)
                 or has_directional_actions
@@ -509,19 +562,18 @@ async def parse_uploaded_data(request: ParseDataRequest):
 
                 action = str(pick(row, *ACTION_COLS) or "").strip()
                 desc = pick(row, "Description", "Merchant", "Name", "Payee", "Memo", "Details")
+                sym = str(pick(row, "Symbol", "Ticker") or "").strip().upper()
                 if not desc:
-                    # A trade row has no merchant, so "SELL NVDA" beats "Transaction 4".
-                    sym = str(pick(row, "Symbol", "Ticker") or "").strip().upper()
                     desc = " ".join(p for p in (action, sym) if p) or f"Transaction {i+1}"
                 date = pick(row, *DATE_COLS) or ""
 
-                # The CSV's own category drives subscription-leak detection
-                # downstream, so it has to survive the round trip — unless the
-                # only category column is really the action column, which would
-                # file every trade under "Buy"/"Sell".
-                category = str(pick(row, "Category", "Classification") or "").strip()
-                if not category or sign_from_action(category) != 0:
-                    category = derive_category(action, amount)
+                raw_cat = str(pick(row, "Category", "Classification") or "").strip()
+                category = (raw_cat if raw_cat and sign_from_action(raw_cat) == 0 else "") or derive_category(action, amount, str(desc))
+
+                if amount > 0 and category.lower() in EXPENSE_CATEGORIES_SET:
+                    is_explicit_inc = bool(re.search(r"payroll|salary|direct dep|paycheck|refund|rebate|cash ?back|dividend|interest credit", f"{action} {desc}", re.I))
+                    if not is_explicit_inc:
+                        amount = -abs(amount)
 
                 transactions.append(ParsedTransaction(
                     date=str(date),

@@ -280,24 +280,26 @@ def advise_with_gemini(user_message: str, portfolio_context: dict = None, histor
     """
     Financial advisor chat using Gemini 2.0 Flash with user portfolio context.
     Does NOT use web grounding — pure reasoning mode for personal advice.
+    The system_instruction is always sent separately from chat history so that
+    portfolio context is never silently dropped in multi-turn conversations.
     """
     portfolio_str = _build_portfolio_context_str(portfolio_context or {})
-    advisor_prompt = f"""You are EarningsPulse AI, a world-class quantitative financial advisor and portfolio risk analyst.
+
+    # System instruction is separate from the chat content turn; Gemini keeps it
+    # active for the whole session regardless of how many turns have passed.
+    system_instruction = f"""You are EarningsPulse AI, a world-class quantitative financial advisor and portfolio risk analyst.
 You have been given the user's actual financial data below. Use it to give highly personalized, data-driven advice.
 
 {portfolio_str}
 
 Guidelines:
-- Reference specific numbers from their data (e.g., exact holdings, amounts, categories)
-- Be direct and actionable like a top-tier Goldman Sachs analyst
-- Flag risks proactively
-- Use clear formatting with bullet points where helpful
-- End with 1-2 concrete next steps the user can take TODAY
-- Keep responses focused (200-350 words unless a deep dive is requested)
-
-USER QUESTION: {user_message}
-
-Provide your expert financial advisory response:"""
+- ALWAYS reference specific numbers from their portfolio data — holdings, amounts, categories, dates
+- Be direct and actionable like a top-tier Goldman Sachs or Bridgewater analyst
+- Proactively flag concentration risks, spending anomalies, and capital inefficiencies
+- Use clear markdown formatting with bullet points or numbered lists when listing multiple items
+- End every response with 1-2 concrete next steps the user can take TODAY
+- Keep responses focused and precise (200-400 words unless a deep dive is explicitly requested)
+- Never give generic advice if specific portfolio data is available — always anchor to their actual numbers"""
 
     has_key = bool(GEMINI_API_KEY and GEMINI_API_KEY.strip() and not GEMINI_API_KEY.startswith("dummy"))
     if not has_key:
@@ -315,17 +317,18 @@ Provide your expert financial advisory response:"""
 
         client = genai.Client(api_key=GEMINI_API_KEY)
 
-        # Build multi-turn chat contents from history
+        # Build multi-turn chat contents from history + current message.
+        # System instruction is passed separately via GenerateContentConfig so
+        # it is ALWAYS active — earlier code embedded it in the first user turn
+        # which meant it disappeared as soon as the conversation had any history.
         chat_contents = []
         for turn in (history or []):
             role = turn.get("role", "user")
-            # Gemini uses "model" for assistant turns
             gemini_role = "model" if role == "assistant" else "user"
             chat_contents.append(types.Content(
                 role=gemini_role,
                 parts=[types.Part(text=turn.get("content", ""))]
             ))
-        # Append the current user message
         chat_contents.append(types.Content(
             role="user",
             parts=[types.Part(text=user_message)]
@@ -333,11 +336,11 @@ Provide your expert financial advisory response:"""
 
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=chat_contents if chat_contents else advisor_prompt,
+            contents=chat_contents,
             config=types.GenerateContentConfig(
-                system_instruction=advisor_prompt.split("USER QUESTION:")[0].strip() if "USER QUESTION:" in advisor_prompt else advisor_prompt,
+                system_instruction=system_instruction,
                 temperature=0.7,
-                max_output_tokens=1024,
+                max_output_tokens=1500,
             )
         )
         text = response.text if hasattr(response, "text") else str(response)
@@ -347,7 +350,15 @@ Provide your expert financial advisory response:"""
             "provider": "Google Gemini"
         }
     except Exception as e:
-        logger.warning(f"Gemini API request failed ({e}), generating dynamic grounded advisory response.")
+        logger.warning(f"Gemini advisor API failed ({e}), falling back to Claude then advisor engine.")
+        # Try Claude as first fallback before the static engine
+        try:
+            from app.services.claude_service import advise_with_claude
+            result = advise_with_claude(user_message, portfolio_context, history=history)
+            result["provider"] = "Anthropic Claude (Gemini fallback)"
+            return result
+        except Exception as e2:
+            logger.warning(f"Claude fallback also failed ({e2}), using advisor engine.")
         from app.services.advisor_engine import analyze_portfolio_and_generate_advice
         return analyze_portfolio_and_generate_advice(
             user_message=user_message,

@@ -3,26 +3,152 @@ import { useAppAuth } from '../auth/AuthContext';
 import {
   Send, RefreshCw, Cpu, ChevronDown, ChevronUp,
   Zap, MessageSquare, BarChart2, Trash2, Database,
-  User, Lock, ArrowRight, ShieldAlert, Sparkles, TrendingUp
+  User, Lock, ArrowRight, ShieldAlert, Sparkles, TrendingUp,
+  DollarSign, CheckCircle2, AlertTriangle, Layers
 } from 'lucide-react';
 
-// ─── Quick Prompts ─────────────────────────────────────────────────────────────
-const QUICK_PROMPTS = [
-  { icon: BarChart2, text: "Analyze my portfolio concentration and flag any overweight positions" },
-  { icon: Zap,       text: "Where am I overspending? Give me specific numbers from my data" },
-  { icon: ShieldAlert, text: "What's my biggest financial risk right now and how do I mitigate it?" },
-  { icon: Sparkles,  text: "Suggest a rebalancing plan based on my current holdings" },
-  { icon: Database,  text: "Summarize my top subscriptions and flag any I should cancel" },
-  { icon: TrendingUp, text: "If I had $10,000 to deploy today, where would you allocate it?" },
+// ─── Available Advisory Models ────────────────────────────────────────────────
+const ADVISOR_MODELS = [
+  {
+    id: 'gemini',
+    name: 'Gemini 2.0 Flash',
+    tagline: 'Recommended • Deep Personal Reasoning',
+    provider: 'Google Gemini',
+    badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+    iconColor: 'text-emerald-400',
+    description: 'Fastest institutional reasoning with complete multi-asset context.'
+  },
+  {
+    id: 'claude',
+    name: 'Claude 3.5 Sonnet',
+    tagline: 'Behavioral Finance & Habit Design',
+    provider: 'Anthropic Claude',
+    badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+    iconColor: 'text-amber-400',
+    description: 'Deep behavioral insights, cognitive bias detection, and cashflow optimization.'
+  },
+  {
+    id: 'nemotron',
+    name: 'NVIDIA Nemotron',
+    tagline: 'Quantitative Risk & Variance',
+    provider: 'NVIDIA NIM',
+    badgeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+    iconColor: 'text-cyan-400',
+    description: 'Wall Street institutional risk attribution, HHI concentration, and VaR modeling.'
+  }
 ];
 
+// ─── Markdown Formatter ───────────────────────────────────────────────────────
+const FormattedMessage = ({ content }) => {
+  if (!content) return null;
+
+  const lines = content.split('\n');
+
+  return (
+    <div className="space-y-2 text-sm leading-relaxed text-slate-200">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+
+        // Empty lines create visual spacing
+        if (!trimmed) {
+          return <div key={idx} className="h-1.5" />;
+        }
+
+        // Heading 3: ### Title
+        if (trimmed.startsWith('### ')) {
+          return (
+            <h4 key={idx} className="text-base font-bold text-white tracking-tight pt-2 pb-1 border-b border-slate-800/80">
+              {renderBoldText(trimmed.replace('### ', ''))}
+            </h4>
+          );
+        }
+
+        // Heading 2 or 1
+        if (trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
+          return (
+            <h3 key={idx} className="text-lg font-extrabold text-white tracking-tight pt-2 pb-1 text-emerald-400">
+              {renderBoldText(trimmed.replace(/^#+\s*/, ''))}
+            </h3>
+          );
+        }
+
+        // Bullet point: - or *
+        if (/^[-*]\s+/.test(trimmed)) {
+          const bulletContent = trimmed.replace(/^[-*]\s+/, '');
+          return (
+            <div key={idx} className="flex items-start space-x-2 pl-1.5 py-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 mt-2 shrink-0" />
+              <div className="flex-1 text-slate-300 leading-normal">
+                {renderBoldText(bulletContent)}
+              </div>
+            </div>
+          );
+        }
+
+        // Numbered list: 1. or 2.
+        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+        if (numMatch) {
+          return (
+            <div key={idx} className="flex items-start space-x-2 pl-1 py-0.5">
+              <span className="font-mono text-xs font-bold text-emerald-400/90 mt-0.5 shrink-0 min-w-4 text-right">
+                {numMatch[1]}.
+              </span>
+              <div className="flex-1 text-slate-300 leading-normal">
+                {renderBoldText(numMatch[2])}
+              </div>
+            </div>
+          );
+        }
+
+        // Regular paragraph text
+        return (
+          <p key={idx} className="text-slate-300 leading-relaxed">
+            {renderBoldText(trimmed)}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
+// Helper to render bold **text**, inline `code`, and highlights
+const renderBoldText = (text) => {
+  if (!text) return null;
+
+  // Split by inline code first: `code`
+  const codeParts = text.split(/(`[^`]+`)/g);
+
+  return codeParts.map((codePart, i) => {
+    if (codePart.startsWith('`') && codePart.endsWith('`')) {
+      return (
+        <code key={i} className="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-mono text-xs border border-slate-700">
+          {codePart.slice(1, -1)}
+        </code>
+      );
+    }
+
+    // Split by bold: **bold**
+    const boldParts = codePart.split(/(\*\*[^*]+\*\*)/g);
+    return boldParts.map((part, j) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={j} className="font-semibold text-white">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
+  });
+};
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
-const MessageBubble = ({ msg }) => {
+const MessageBubble = ({ msg, selectedModelInfo }) => {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] flex items-end space-x-2">
-          <div className="bg-gradient-to-br from-emerald-600/90 to-teal-700/90 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-lg shadow-emerald-900/30">
+        <div className="max-w-[78%] flex items-end space-x-2">
+          <div className="bg-gradient-to-br from-emerald-600/95 to-teal-700/95 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-lg shadow-emerald-950/40">
             {msg.content}
           </div>
           <div className="h-7 w-7 rounded-full bg-emerald-900/80 border border-emerald-500/40 flex items-center justify-center shrink-0">
@@ -33,19 +159,28 @@ const MessageBubble = ({ msg }) => {
     );
   }
 
+  // Model-specific badge style
+  const providerLabel = msg.provider || selectedModelInfo?.provider || 'EarningsPulse AI';
+  let badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+  if (providerLabel.toLowerCase().includes('claude')) {
+    badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+  } else if (providerLabel.toLowerCase().includes('nemotron') || providerLabel.toLowerCase().includes('nvidia')) {
+    badgeClass = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+  }
+
   return (
     <div className="flex justify-start">
-      <div className="max-w-[80%] flex items-start space-x-2">
-        <div className="h-7 w-7 rounded-full bg-emerald-500/10 border border-emerald-500/50 flex items-center justify-center shrink-0 mt-1">
-          <Cpu className="h-3.5 w-3.5 text-emerald-400" />
+      <div className="max-w-[85%] flex items-start space-x-2.5">
+        <div className="h-7 w-7 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center shrink-0 mt-1 shadow-sm">
+          <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
         </div>
-        <div>
-          <div className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border mb-1 bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
-            <Cpu className="h-2.5 w-2.5" />
-            <span>NVIDIA Nemotron</span>
+        <div className="space-y-1 w-full">
+          <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider border shadow-sm uppercase font-mono">
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${badgeClass.includes('amber') ? 'bg-amber-400' : (badgeClass.includes('cyan') ? 'bg-cyan-400' : 'bg-emerald-400')}`} />
+            <span className={badgeClass.split(' ')[1]}>{providerLabel}</span>
           </div>
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-slate-200 leading-relaxed shadow-sm whitespace-pre-wrap">
-            {msg.content}
+          <div className="bg-slate-900/95 border border-slate-800 rounded-2xl rounded-tl-sm px-5 py-4 shadow-xl">
+            <FormattedMessage content={msg.content} />
           </div>
         </div>
       </div>
@@ -54,16 +189,17 @@ const MessageBubble = ({ msg }) => {
 };
 
 // ─── Typing Indicator ─────────────────────────────────────────────────────────
-const TypingIndicator = () => (
+const TypingIndicator = ({ modelName }) => (
   <div className="flex justify-start">
-    <div className="flex items-start space-x-2">
-      <div className="h-7 w-7 rounded-full bg-emerald-500/10 border border-emerald-500/50 flex items-center justify-center shrink-0 mt-1 animate-pulse">
-        <Cpu className="h-3.5 w-3.5 text-emerald-400" />
+    <div className="flex items-start space-x-2.5">
+      <div className="h-7 w-7 rounded-full bg-slate-900 border border-emerald-500/50 flex items-center justify-center shrink-0 mt-1 animate-pulse">
+        <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
       </div>
-      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center space-x-1.5">
-        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+      <div className="bg-slate-900/95 border border-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center space-x-2 shadow-sm">
+        <span className="text-xs text-slate-400 font-medium mr-1">{modelName} reasoning</span>
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
       </div>
     </div>
   </div>
@@ -72,27 +208,24 @@ const TypingIndicator = () => (
 // ─── Upload Gate (shown when no portfolio data) ───────────────────────────────
 const UploadGate = () => (
   <div className="space-y-5">
-    {/* Header */}
     <div className="glass-panel rounded-2xl p-6 border border-slate-800 relative overflow-hidden">
       <div className="absolute top-0 right-0 w-72 h-72 bg-emerald-600/5 rounded-full blur-3xl pointer-events-none" />
       <div className="flex items-center space-x-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2">
-        <Cpu className="h-3.5 w-3.5" />
-        <span>NVIDIA Nemotron Financial Advisor</span>
+        <Sparkles className="h-3.5 w-3.5" />
+        <span>Personal Portfolio AI Advisory</span>
       </div>
       <h2 className="text-2xl font-extrabold text-white tracking-tight">AI Financial Advisor</h2>
       <p className="text-sm text-slate-400 mt-1">
-        Powered exclusively by NVIDIA Nemotron — institutional-grade quantitative analysis for your personal portfolio.
+        Institutional-grade quantitative intelligence powered by Google Gemini, Anthropic Claude, and NVIDIA Nemotron.
       </p>
     </div>
 
-    {/* Lock Gate Card */}
     <div className="glass-panel rounded-2xl border border-emerald-500/20 overflow-hidden relative">
       <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/20 via-transparent to-teal-950/20 pointer-events-none" />
 
-      <div className="p-12 flex flex-col items-center text-center relative">
-        {/* Animated lock icon */}
+      <div className="p-10 flex flex-col items-center text-center relative">
         <div className="relative mb-6">
-          <div className="h-20 w-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shadow-lg shadow-emerald-900/30">
+          <div className="h-20 w-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shadow-lg shadow-emerald-950/40">
             <Lock className="h-9 w-9 text-emerald-400" />
           </div>
           <div className="absolute -top-1 -right-1 h-6 w-6 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
@@ -101,18 +234,17 @@ const UploadGate = () => (
         </div>
 
         <h3 className="text-xl font-extrabold text-white mb-2">Portfolio Data Required</h3>
-        <p className="text-sm text-slate-400 max-w-sm leading-relaxed mb-8">
-          The NVIDIA Nemotron AI Advisor needs your actual financial data to provide personalized, 
-          quantitative advice. Upload your portfolio or transaction history in the <strong className="text-emerald-300">Portfolio tab</strong> to unlock this feature.
+        <p className="text-sm text-slate-400 max-w-md leading-relaxed mb-8">
+          The AI Financial Advisor connects directly to your holdings and transaction ledger to give tailored, mathematically grounded answers with exact numbers.
+          Upload your broker CSV or connect via SnapTrade on the <strong className="text-emerald-300">Portfolio tab</strong> to unlock this advisor.
         </p>
 
-        {/* Feature preview */}
-        <div className="w-full max-w-md grid grid-cols-1 gap-3 mb-8 text-left">
+        <div className="w-full max-w-lg grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8 text-left">
           {[
-            { icon: BarChart2, label: 'Concentration Risk Analysis', desc: 'Detect overweight positions using Sharpe & HHI' },
-            { icon: TrendingUp, label: 'Rebalancing Recommendations', desc: 'Institutional-grade allocation optimization' },
-            { icon: Zap,       label: 'Spending Leak Detection',     desc: 'Identify and flag recurring capital drains' },
-            { icon: ShieldAlert, label: 'Drawdown & Risk Scoring',   desc: 'Stress-test your portfolio against market events' },
+            { icon: BarChart2, label: 'Single-Stock Risk & HHI', desc: 'Stress-test overweight holdings against earnings shocks' },
+            { icon: TrendingUp, label: 'Rebalancing Roadmaps', desc: 'Core-satellite asset allocation optimization' },
+            { icon: Zap, label: 'Spending Leak Detection', desc: 'Identify and eliminate recurring capital drains' },
+            { icon: ShieldAlert, label: 'Model Freedom', desc: 'Switch freely between Gemini 2.0, Claude, and Nemotron' },
           ].map((f, i) => {
             const FIcon = f.icon;
             return (
@@ -131,15 +263,9 @@ const UploadGate = () => (
 
         <div className="flex items-center space-x-2 text-xs text-slate-500">
           <Database className="h-3.5 w-3.5 text-emerald-500" />
-          <span>Navigate to the <span className="text-emerald-400 font-semibold">Portfolio</span> tab → upload a CSV from your broker → return here</span>
+          <span>Go to <span className="text-emerald-400 font-semibold">Portfolio tab</span> → paste or import your broker CSV → return here</span>
         </div>
       </div>
-    </div>
-
-    {/* Security note */}
-    <div className="flex items-center justify-center space-x-2 text-[11px] text-slate-500">
-      <ShieldAlert className="h-3 w-3 text-slate-600" />
-      <span>Your financial data stays local — it's only sent to the AI when you ask a question</span>
     </div>
   </div>
 );
@@ -149,6 +275,7 @@ const TabAdvisor = () => {
   const { uploadedPortfolio, hasPersonalData } = useAppAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [selectedModel, setSelectedModel] = useState('gemini');
   const [isLoading, setIsLoading] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [error, setError] = useState(null);
@@ -159,18 +286,43 @@ const TabAdvisor = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // If no data uploaded, show the gate
   if (!hasPersonalData) {
     return <UploadGate />;
   }
 
-  const holdingCount = uploadedPortfolio?.holdings?.length || 0;
-  const txCount = uploadedPortfolio?.transactions?.length || 0;
-  const totalValue = (uploadedPortfolio?.holdings || []).reduce((s, h) => s + (h.current_value || 0), 0);
+  const holdings = uploadedPortfolio?.holdings || [];
+  const transactions = uploadedPortfolio?.transactions || [];
+
+  const holdingCount = holdings.length;
+  const txCount = transactions.length;
+
+  const totalValue = holdings.reduce((s, h) => s + (parseFloat(h.current_value) || 0), 0);
+  const outflows = transactions.filter(t => (parseFloat(t.amount) || 0) < 0);
+  const inflows = transactions.filter(t => (parseFloat(t.amount) || 0) > 0);
+  const totalOut = outflows.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
+  const totalIn = inflows.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  const netFlow = totalIn - totalOut;
+
+  // Top holding
+  const sortedHoldings = [...holdings].sort((a, b) => Math.abs(b.current_value || 0) - Math.abs(a.current_value || 0));
+  const topHolding = sortedHoldings[0];
+  const topWeight = totalValue > 0 && topHolding ? Math.round((Math.abs(topHolding.current_value) / totalValue) * 100) : 0;
+
+  // Dynamic quick prompts tailored to their actual portfolio
+  const quickPrompts = [
+    topHolding
+      ? { icon: ShieldAlert, text: `Analyze my concentration in ${topHolding.symbol} (${topWeight}%) and suggest a trim plan` }
+      : { icon: ShieldAlert, text: "Analyze my portfolio concentration and flag any overweight positions" },
+    { icon: Zap, text: "Where am I overspending? Show me specific leaks from my transaction data" },
+    { icon: TrendingUp, text: "If I had $10,000 to deploy today, where should I allocate it?" },
+    { icon: BarChart2, text: "Suggest a rebalancing plan based on my current asset allocation" },
+    { icon: Sparkles, text: "Summarize my recurring subscriptions and flag any I should cancel" },
+    { icon: Database, text: "Give me an executive diagnostic of my overall portfolio health" }
+  ];
 
   const buildPortfolioContext = () => ({
-    holdings: uploadedPortfolio?.holdings || [],
-    transactions: uploadedPortfolio?.transactions || [],
+    holdings: holdings,
+    transactions: transactions,
     last_audit: uploadedPortfolio?.last_audit || null
   });
 
@@ -192,7 +344,7 @@ const TabAdvisor = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          model: 'nemotron',
+          model: selectedModel,
           portfolio_context: buildPortfolioContext(),
           history: historyForApi
         })
@@ -208,6 +360,7 @@ const TabAdvisor = () => {
         id: Date.now() + 1,
         role: 'assistant',
         content: data.text,
+        model: data.model,
         provider: data.provider
       }]);
     } catch (err) {
@@ -230,127 +383,179 @@ const TabAdvisor = () => {
     setError(null);
   };
 
+  const currentModelInfo = ADVISOR_MODELS.find(m => m.id === selectedModel) || ADVISOR_MODELS[0];
+
   return (
     <div className="space-y-5">
 
-      {/* Header */}
+      {/* Header & Model Selector Card */}
       <div className="glass-panel rounded-2xl p-6 border border-slate-800 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-72 h-72 bg-emerald-600/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-600/5 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 relative">
           <div>
             <div className="flex items-center space-x-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2">
-              <Cpu className="h-3.5 w-3.5" />
-              <span>NVIDIA Nemotron — Quantitative Financial Advisor</span>
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Multi-Model AI Financial Advisor</span>
             </div>
             <h2 className="text-2xl font-extrabold text-white tracking-tight">AI Financial Advisor</h2>
-            <p className="text-sm text-slate-400 mt-1">
-              Ask any financial question — your portfolio data ({holdingCount} holdings, {txCount} transactions) is automatically provided as context.
+            <p className="text-sm text-slate-400 mt-1 max-w-xl">
+              Grounded directly in your personal portfolio data ({holdingCount} holdings, {txCount} transactions, ${Math.round(totalValue).toLocaleString()} NAV).
             </p>
           </div>
-          <div className="flex items-center space-x-3 shrink-0">
-            <button
-              onClick={() => setShowContext(v => !v)}
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-semibold hover:bg-emerald-950/60 transition-colors cursor-pointer"
-            >
-              <Database className="h-3.5 w-3.5" />
-              <span>Your Data Loaded 🔒</span>
-              {showContext ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </button>
-            {messages.length > 0 && (
+
+          {/* Model Switcher Pill Group */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
+            <div className="flex items-center p-1 rounded-xl bg-slate-900/90 border border-slate-800 shadow-inner">
+              {ADVISOR_MODELS.map((m) => {
+                const isSelected = selectedModel === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSelectedModel(m.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <span>{m.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center space-x-2">
               <button
-                onClick={clearChat}
-                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                type="button"
+                onClick={() => setShowContext(v => !v)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-300 text-xs font-semibold transition-colors cursor-pointer"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Clear</span>
+                <Database className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Data Drawer</span>
+                {showContext ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               </button>
-            )}
+
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearChat}
+                  className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-400 hover:text-rose-300 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Clear</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Context Data Summary */}
+        {/* Selected Model Description Banner */}
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+          <div className="flex items-center space-x-2">
+            <span className={`inline-block h-2 w-2 rounded-full ${currentModelInfo.iconColor.replace('text-', 'bg-')}`} />
+            <span className="font-semibold text-slate-200">{currentModelInfo.name}:</span>
+            <span>{currentModelInfo.description}</span>
+          </div>
+          <span className="hidden md:inline font-mono text-[11px] text-slate-500">{currentModelInfo.tagline}</span>
+        </div>
+
+        {/* Collapsible Context Data Summary */}
         {showContext && (
-          <div className="mt-4 pt-4 border-t border-slate-800 grid grid-cols-3 gap-3 text-xs animate-fadeIn">
-            <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800 text-center">
-              <div className="text-emerald-400 font-bold text-base">{holdingCount}</div>
-              <div className="text-slate-400 mt-0.5">Holdings</div>
+          <div className="mt-4 pt-4 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs animate-fadeIn">
+            <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-800">
+              <div className="text-slate-400 text-[11px]">Holdings & NAV</div>
+              <div className="text-emerald-400 font-bold text-base mt-0.5">${Math.round(totalValue).toLocaleString()}</div>
+              <div className="text-slate-500 text-[10px] mt-0.5">{holdingCount} active positions</div>
             </div>
-            <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800 text-center">
-              <div className="text-emerald-400 font-bold text-base">{txCount}</div>
-              <div className="text-slate-400 mt-0.5">Transactions</div>
+
+            <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-800">
+              <div className="text-slate-400 text-[11px]">Largest Exposure</div>
+              <div className="text-white font-bold text-base mt-0.5">{topHolding ? topHolding.symbol : 'N/A'}</div>
+              <div className="text-amber-400 text-[10px] mt-0.5">{topWeight}% of portfolio</div>
             </div>
-            <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800 text-center">
-              <div className="text-emerald-400 font-bold text-base">${totalValue.toLocaleString()}</div>
-              <div className="text-slate-400 mt-0.5">Portfolio Value</div>
+
+            <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-800">
+              <div className="text-slate-400 text-[11px]">Recent Outflows</div>
+              <div className="text-rose-400 font-bold text-base mt-0.5">-${Math.round(totalOut).toLocaleString()}</div>
+              <div className="text-slate-500 text-[10px] mt-0.5">{outflows.length} debits logged</div>
+            </div>
+
+            <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-800">
+              <div className="text-slate-400 text-[11px]">Net Cashflow</div>
+              <div className={`font-bold text-base mt-0.5 ${netFlow >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {netFlow >= 0 ? '+' : '-'}${Math.round(Math.abs(netFlow)).toLocaleString()}
+              </div>
+              <div className="text-slate-500 text-[10px] mt-0.5">from ${Math.round(totalIn).toLocaleString()} inflow</div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Chat Area */}
-      <div className="glass-panel rounded-2xl border border-slate-800 overflow-hidden flex flex-col" style={{ minHeight: '540px' }}>
+      {/* Main Chat Interface */}
+      <div className="glass-panel rounded-2xl border border-slate-800 overflow-hidden flex flex-col shadow-2xl" style={{ minHeight: '560px' }}>
 
-        {/* Chat Header */}
-        <div className="px-5 py-3 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/70">
+        {/* Chat Thread Header */}
+        <div className="px-5 py-3 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/80">
           <div className="flex items-center space-x-2.5">
-            <div className="h-2.5 w-2.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 animate-pulse" />
+            <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-xs font-bold text-white flex items-center space-x-1.5">
-              <Cpu className="h-3.5 w-3.5 text-emerald-400" />
-              <span>NVIDIA Nemotron</span>
-              <span className="text-slate-400 font-normal">Advisory Thread</span>
+              <span>{currentModelInfo.name}</span>
+              <span className="text-slate-400 font-normal">Active Session</span>
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 font-mono">
               {messages.length} message{messages.length !== 1 ? 's' : ''}
             </span>
           </div>
 
-          {messages.length > 0 && (
-            <button
-              type="button"
-              onClick={clearChat}
-              className="text-[11px] text-slate-400 hover:text-rose-400 flex items-center space-x-1.5 transition-colors cursor-pointer px-2.5 py-1 rounded-lg hover:bg-slate-900/90 border border-transparent hover:border-slate-800"
-            >
-              <Trash2 className="h-3 w-3" />
-              <span>Clear Chat</span>
-            </button>
-          )}
+          <div className="text-[11px] text-slate-500 flex items-center space-x-1">
+            <ShieldAlert className="h-3 w-3 text-slate-600" />
+            <span>Private & Local • Financial Data Grounded</span>
+          </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4" style={{ maxHeight: '430px' }}>
+        {/* Messages Scroll Area */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4" style={{ maxHeight: '450px' }}>
           {messages.length === 0 && !isLoading && (
             <div className="h-full flex flex-col items-center justify-center py-10 text-center">
-              <div className="h-14 w-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/50 flex items-center justify-center mb-4">
-                <Cpu className="h-7 w-7 text-emerald-400" />
+              <div className="h-14 w-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 flex items-center justify-center mb-4 shadow-lg shadow-emerald-950/30">
+                <Sparkles className="h-7 w-7 text-emerald-400" />
               </div>
-              <h3 className="text-base font-bold text-white">Ask Nemotron Anything</h3>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                I have full context of your portfolio — {holdingCount} holdings, {txCount} transactions, ${totalValue.toLocaleString()} total value.
+              <h3 className="text-base font-bold text-white">Ask {currentModelInfo.name} About Your Finances</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm leading-relaxed">
+                I have full context of your portfolio — {holdingCount} holdings (${Math.round(totalValue).toLocaleString()} NAV) and {txCount} ledger transactions.
               </p>
             </div>
           )}
 
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} msg={msg} />
+            <MessageBubble key={msg.id} msg={msg} selectedModelInfo={currentModelInfo} />
           ))}
 
-          {isLoading && <TypingIndicator />}
+          {isLoading && <TypingIndicator modelName={currentModelInfo.name} />}
 
           {error && (
-            <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs">
-              <strong>Error:</strong> {error}
+            <div className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs flex items-start space-x-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+              <div>
+                <strong>Advisory Notice:</strong> {error}
+              </div>
             </div>
           )}
 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Quick Prompts */}
+        {/* Quick Prompts Shelf */}
         {messages.length === 0 && (
           <div className="px-5 pb-4">
-            <p className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider mb-2">Quick Prompts</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {QUICK_PROMPTS.map((qp, i) => {
+            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-2 flex items-center space-x-1">
+              <Zap className="h-3 w-3 text-emerald-400" />
+              <span>Suggested Data-Grounded Prompts</span>
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {quickPrompts.map((qp, i) => {
                 const QIcon = qp.icon;
                 return (
                   <button
@@ -369,16 +574,16 @@ const TabAdvisor = () => {
           </div>
         )}
 
-        {/* Input */}
-        <div className="border-t border-slate-800 p-4">
-          <div className="flex items-end space-x-3 p-1 rounded-xl border border-emerald-500/50 bg-slate-900/60 focus-within:border-emerald-500/80 transition-colors">
+        {/* Chat Input Bar */}
+        <div className="border-t border-slate-800/80 p-4 bg-slate-950/60">
+          <div className="flex items-end space-x-3 p-1.5 rounded-xl border border-slate-800 bg-slate-900/80 focus-within:border-emerald-500/70 focus-within:ring-1 focus-within:ring-emerald-500/30 transition-all">
             <textarea
               ref={textareaRef}
               rows={2}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask NVIDIA Nemotron about your portfolio... (Enter to send, Shift+Enter for newline)"
+              placeholder={`Ask ${currentModelInfo.name} anything about your holdings or spending... (Enter to send, Shift+Enter for new line)`}
               className="flex-1 bg-transparent px-3 py-2 text-sm text-white placeholder-slate-500 resize-none focus:outline-none leading-relaxed"
               style={{ maxHeight: '120px' }}
             />
@@ -386,7 +591,8 @@ const TabAdvisor = () => {
               type="button"
               onClick={() => handleSend()}
               disabled={!input.trim() || isLoading}
-              className="mb-1 mr-1 p-2.5 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-600 text-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer hover:opacity-90 shrink-0"
+              className="mb-1 mr-1 p-2.5 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-600 text-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer hover:opacity-90 shadow-md shrink-0"
+              title="Send message"
             >
               {isLoading
                 ? <RefreshCw className="h-4 w-4 animate-spin" />
@@ -395,9 +601,10 @@ const TabAdvisor = () => {
             </button>
           </div>
           <p className="text-[10px] text-slate-600 mt-1.5 text-center">
-            AI-generated advice is for informational purposes only. Not financial advice.
+            AI-generated analysis is for quantitative evaluation and educational planning. Not formal investment advice.
           </p>
         </div>
+
       </div>
 
     </div>

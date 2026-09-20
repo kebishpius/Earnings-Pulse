@@ -143,5 +143,32 @@ Account Total,,,,$19220.00`);
   check('cash still classified', holdings[1].asset_type, 'Cash');
 }
 
+// ── Credit card statement with Type: Sale properly classified as spending ──
+{
+  const { transactions } = parseFinancialCsv(
+`Type,Date,Description,Amount
+Sale,2026-08-01,Starbucks Coffee,5.50
+Sale,2026-08-02,Shell Gas Station,45.00
+Payment,2026-08-05,Payment Thank You,100.00`);
+  check('card Sale is negative spending, not positive income',
+    transactions.map(t => t.amount), [-5.5, -45, -100]);
+  check('card Sale categories derived from merchant',
+    transactions.map(t => t.category), ['Food & Dining', 'Travel', 'Other']);
+}
+
+// ── Selling vs Buying in description without Action column ──
+{
+  const { transactions } = parseFinancialCsv(
+`Date,Description,Amount
+2026-08-01,Selling 50 AAPL,500.00
+2026-08-02,Buying 10 NVDA,1000.00
+2026-08-03,Starbucks Coffee,5.50
+2026-08-04,Direct Deposit Payroll,3000.00
+2026-08-05,Target Store,-45.00`);
+  check('selling stock is positive inflow, buying stock and coffee are outflows',
+    transactions.map(t => t.amount), [500, -1000, -5.5, 3000, -45]);
+}
+
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
+

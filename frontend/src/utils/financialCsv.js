@@ -117,26 +117,57 @@ export const normalizeSymbol = (raw) =>
 // ── Direction ───────────────────────────────────────────────────────────────
 
 // Reads a direction out of an action / activity / transaction-type cell.
-// Ordered, first match wins: "buy to cover" is a purchase rather than a cover,
-// and "margin interest" is a charge rather than interest income.
+// Differentiates between security trades (selling stock = cash in) and
+// retail card transactions ("Sale" at a merchant = cash out).
 const ACTION_SIGNS = [
-  [/margin interest|interest (charge|paid|expense)|advisory fee|management fee/, -1],
-  [/buy to (open|close|cover)|bought to cover|cover short/, -1],
-  [/sell to (open|close)|short sale|sold short/, 1],
-  [/dividend|distribution|capital gain|coupon|interest/, 1],
-  [/\bsells?\b|\bsold\b|\bsale\b|redemption|redeem|proceeds|liquidat/, 1],
-  [/\bbuys?\b|\bbought\b|\bbot\b|purchase|reinvest/, -1],
-  [/deposit|transfer in|incoming|refund|reimburs|rebate|cash ?back|payroll|salary|\bincome\b|\bcredit\b|received/, 1],
-  [/withdraw|transfer out|outgoing|\bfees?\b|commission|\btax\b|\bcharges?\b|payment|\bdebit\b|expense/, -1],
+  [/margin interest|interest (charge|paid|expense)|advisory fee|management fee/i, -1],
+  [/buy to (open|close|cover)|bought to cover|cover short/i, -1],
+  [/sell to (open|close)|short sale|sold short/i, 1],
+  [/dividend|distribution|capital gain|coupon|interest/i, 1],
+  [/\b(sell|sold|selling)\b|redemption|redeem|proceeds|liquidat/i, 1],
+  [/\b(buy|buys|bought|bot|purchase|reinvest)\b/i, -1],
+  [/deposit|transfer in|incoming|refund|reimburs|rebate|cash ?back|payroll|salary|\bincome\b|\bcredit\b|received/i, 1],
+  [/withdraw|transfer out|outgoing|\bfees?\b|commission|\btax\b|\bcharges?\b|payment|\bdebit\b|expense/i, -1],
+  // Retail point-of-sale card transaction (e.g. Chase/Amex/BoA card "Sale")
+  [/\b(sale|pos sale|card sale|debit sale|point of sale)\b/i, -1],
 ];
 
-// Deliberately never applied to a free-text description: "Best Buy" and
-// "Warehouse Sale" would flip real spending into income.
-const signFromAction = (raw) => {
+// Resolves sign from an action/type cell, taking into account whether a stock ticker is present
+const signFromAction = (raw, { symbol = '' } = {}) => {
   const s = String(raw ?? '').toLowerCase().trim();
   if (!s) return 0;
+
+  // In card/merchant statements, "Sale" is an outflow (spending).
+  // Only if there is an explicit stock symbol or security context is "Sale" proceeds.
+  if (/^(sale|pos sale|debit sale|card sale)$/i.test(s)) {
+    return symbol && symbol !== 'USD' && !/cash/i.test(symbol) ? 1 : -1;
+  }
+
   for (const [pattern, sign] of ACTION_SIGNS) {
     if (pattern.test(s)) return sign;
+  }
+  return 0;
+};
+
+// Infers direction from description when no action column exists or action is ambiguous
+const signFromDescription = (desc = '') => {
+  const s = String(desc || '').toLowerCase().trim();
+  if (!s) return 0;
+
+  // Clear Inflows
+  if (/payroll|salary|direct dep|paycheck|bonus|tax refund|dividend|interest (paid|earned|credit|income)|cash ?back|rebate|zelle from|venmo from/i.test(s)) {
+    return 1;
+  }
+  // Securities trades in description
+  if (/\b(sell|sold|selling)\b.*\b([A-Z]{1,5}|shares?|stock|crypto)\b/i.test(s)) {
+    return 1;
+  }
+  if (/\b(buy|buys|buying|bought|purchas(e|es|ing|ed)?)\b.*\b([A-Z]{1,5}|shares?|stock|crypto)\b/i.test(s)) {
+    return -1;
+  }
+  // Clear Outflows & Common Merchant / Discretionary Expenses
+  if (/payment to|purchase|atm withdrawal|withdrawal|wire out|\bfee\b|subscription|\bsub\b|uber|lyft|starbucks|amazon|walmart|target|netflix|spotify|equinox|gym|aws|cloud|chatgpt|midjourney|doordash|instacart|restaurant|cafe|coffee|grocery|groceries|electric|water|gas bill|utility|utilities|rent\b|mortgage|insurance|airline|flight|hotel|airbnb|apple\.com\/bill|google \*/i.test(s)) {
+    return -1;
   }
   return 0;
 };
@@ -145,8 +176,8 @@ const signFromAction = (raw) => {
 const signFromIndicator = (raw) => {
   const s = String(raw ?? '').toLowerCase().trim();
   if (!s) return 0;
-  if (/^(d|dr|debit|w|withdrawal|out)$/.test(s)) return -1;
-  if (/^(c|cr|credit|deposit|in)$/.test(s)) return 1;
+  if (/^(d|dr|debit|w|withdrawal|out|payment)$/.test(s)) return -1;
+  if (/^(c|cr|credit|deposit|in|refund)$/.test(s)) return 1;
   return 0;
 };
 
@@ -154,8 +185,8 @@ const signFromIndicator = (raw) => {
 const signFromSide = (raw) => {
   const s = String(raw ?? '').toLowerCase().trim();
   if (!s) return 0;
-  if (/^(short|shrt|s|sell|sld)$/.test(s)) return -1;
-  if (/^(long|lng|l|buy|bot)$/.test(s)) return 1;
+  if (/^(short|shrt|s|sell|sold|selling|sld)$/.test(s)) return -1;
+  if (/^(long|lng|l|buy|bot|bought)$/.test(s)) return 1;
   return 0;
 };
 
@@ -175,7 +206,7 @@ const COLUMN_ALIASES = {
   debit: ['debit amount', 'withdrawal amount', 'debit', 'withdrawals', 'withdrawal', 'money out', 'paid out'],
   credit: ['credit amount', 'deposit amount', 'credit', 'deposits', 'deposit', 'money in', 'paid in'],
   indicator: ['debit/credit', 'dr/cr', 'cr/dr', 'debit or credit', 'debit credit indicator', 'direction'],
-  action: ['action', 'activity type', 'activity', 'transaction type', 'trans type', 'order type', 'buy/sell', 'type'],
+  action: ['action', 'activity type', 'activity', 'transaction type', 'trans type', 'order type', 'trade type', 'buy/sell', 'type', 'side'],
   side: ['long/short', 'long short', 'position type', 'side'],
   category: ['category', 'classification', 'transaction type', 'type'],
 };
@@ -231,12 +262,50 @@ const classifyAsset = (symbol, name = '') => {
   return 'Equity';
 };
 
-// Ledger category for files with no category column of their own, or whose only
-// candidate column is really the action column repeating "Buy" / "Sell".
-const deriveCategory = (action, amount) => {
-  if (/dividend|distribution|interest|coupon|capital gain/i.test(action)) return 'Income';
-  if (/\bfees?\b|commission|\btax\b/i.test(action)) return 'Fees';
-  if (/buy|sell|sold|bought|trade|purchase|reinvest|redeem/i.test(action)) return 'Investment';
+// Known expense categories where positive amounts must be treated as outflows
+const EXPENSE_CATEGORIES = new Set([
+  'subscription', 'food & dining', 'dining', 'food', 'restaurants', 'groceries',
+  'travel', 'shopping', 'entertainment', 'utilities', 'fitness', 'healthcare',
+  'cloud & infra', 'ai tools', 'finance sub', 'fees', 'trading outflow', 'personal'
+]);
+
+// Ledger category derivation incorporating action, amount, and description
+const deriveCategory = (action = '', amount = 0, description = '') => {
+  const combined = `${action} ${description}`.toLowerCase();
+
+  // Subscriptions & Recurring SaaS
+  if (/subscription|spotify|netflix|midjourney|chatgpt|aws|cloud|gym|equinox|bloomberg|adobe|prime|hulu|disney|github|patreon/i.test(combined)) {
+    return 'Subscription';
+  }
+  // Food & Dining
+  if (/starbucks|doordash|uber eats|grubhub|restaurant|cafe|coffee|trader joe|whole foods|grocer|food|dining|chipotle|mcdonald/i.test(combined)) {
+    return 'Food & Dining';
+  }
+  // Travel & Transport
+  if (/uber|lyft|airline|flight|hotel|airbnb|delta|united|gas|shell|chevron|parking|transit/i.test(combined)) {
+    return 'Travel';
+  }
+  // Shopping
+  if (/amazon|target|walmart|costco|ebay|best buy|apple store|ikea|shopping/i.test(combined)) {
+    return 'Shopping';
+  }
+  // Utilities & Housing
+  if (/electric|water|gas bill|utility|utilities|internet|comcast|verizon|rent|mortgage/i.test(combined)) {
+    return 'Utilities';
+  }
+  // Fees & Commissions
+  if (/\bfees?\b|commission|\btax\b|interest charge|atm fee/i.test(combined)) {
+    return 'Fees';
+  }
+  // Securities Investment
+  if (/buy|sell|sold|selling|bought|trade|shares?|stock|reinvest|redeem|dividend|distribution/i.test(combined)) {
+    if (/dividend|distribution|interest|coupon|capital gain/i.test(combined)) return 'Income';
+    return 'Investment';
+  }
+  // Income
+  if (/payroll|salary|direct dep|paycheck|bonus|refund|rebate|cashback/i.test(combined)) {
+    return 'Income';
+  }
   return amount > 0 ? 'Income' : 'Other';
 };
 
@@ -381,11 +450,32 @@ export const parseFinancialCsv = (rawText) => {
     }
 
     if (amount === null || amount === 0) return null;
+
+    const symbol = symbolIdx !== -1 ? normalizeSymbol(cols[symbolIdx]) : '';
+    const actionRaw = actionIdx !== -1 ? cols[actionIdx] : '';
+    const descRaw = descIdx !== -1 ? cols[descIdx] : '';
+    const catRaw = categoryIdx !== -1 ? String(cols[categoryIdx] || '').trim().toLowerCase() : '';
+
+    const actionSign = actionIdx !== -1 ? signFromAction(actionRaw, { symbol }) : 0;
+    const indicatorSign = indicatorIdx !== -1 ? signFromIndicator(cols[indicatorIdx]) : 0;
+    const descSign = signFromDescription(descRaw);
+
+    // If explicit direction from action (e.g. BUY, SELL, Sale, Payment) or indicator (DR, CR):
+    if (actionSign !== 0) return actionSign * Math.abs(amount);
+    if (indicatorSign !== 0) return indicatorSign * Math.abs(amount);
+
+    // If amount has explicit sign in the cell (e.g. -$42 or +$100 or (12.50))
     if (stated) return amount;
 
-    const derived = (indicatorIdx !== -1 ? signFromIndicator(cols[indicatorIdx]) : 0)
-      || (actionIdx !== -1 ? signFromAction(cols[actionIdx]) : 0);
-    return derived !== 0 ? derived * Math.abs(amount) : amount;
+    // If description clearly indicates direction (e.g. Starbucks, Uber, Payroll, Sell AAPL):
+    if (descSign !== 0) return descSign * Math.abs(amount);
+
+    // If category is a known expense category:
+    if (catRaw && EXPENSE_CATEGORIES.has(catRaw)) {
+      return -Math.abs(amount);
+    }
+
+    return amount;
   };
 
   const amounts = dataRows.map(signedAmount);
@@ -413,15 +503,23 @@ export const parseFinancialCsv = (rawText) => {
 
     const symbol = symbolIdx !== -1 ? normalizeSymbol(cols[symbolIdx]) : '';
     const rawCategory = categoryIdx !== -1 ? String(cols[categoryIdx] || '').trim() : '';
+    const effectiveCategory = (rawCategory && signFromAction(rawCategory) === 0 ? rawCategory : '') || deriveCategory(action, amount, label);
+
+    // Guard: If amount is positive but the category or merchant indicates spending/expense,
+    // ensure it is properly signed as an outflow unless explicitly marked as income/refund.
+    if (amount > 0 && EXPENSE_CATEGORIES.has(effectiveCategory.toLowerCase())) {
+      const isExplicitIncome = /payroll|salary|direct dep|paycheck|refund|rebate|cash ?back|dividend|interest credit/i.test(`${action} ${label}`);
+      if (!isExplicitIncome) {
+        amount = -Math.abs(amount);
+      }
+    }
 
     transactions.push({
       date: dateIdx !== -1 ? (cols[dateIdx] || '') : '',
       // A trade row has no merchant, so "Sell NVDA" beats "Transaction 4".
       description: label || [action, symbol].filter(Boolean).join(' ') || `Transaction ${i + 1}`,
       amount,
-      // A category column that is really the action column would file every
-      // trade under "Buy"/"Sell"; derive something more useful in that case.
-      category: (signFromAction(rawCategory) === 0 ? rawCategory : '') || deriveCategory(action, amount),
+      category: effectiveCategory,
     });
   });
 
