@@ -3,7 +3,7 @@ import { useAppAuth } from './auth/AuthContext';
 import Navbar from './components/Navbar';
 import { Activity, Lock, Cpu, Globe, ArrowRight, ShieldCheck, Sparkles, Settings, AlertCircle, RefreshCw } from 'lucide-react';
 import TabEarnings from './components/TabEarnings';
-import TabNews from './components/TabNews';
+import TabRadar from './components/TabRadar';
 import TabPortfolio from './components/TabPortfolio';
 import TabAdvisor from './components/TabAdvisor';
 
@@ -21,6 +21,15 @@ function App() {
 
   const [activeTab, setActiveTab] = useState('earnings');
   const [backendHealth, setBackendHealth] = useState(null);
+
+  // Set when the Radar hands a company off to the analyzer. The nonce makes
+  // each hand-off distinct, so asking for the same company twice runs twice.
+  const [analyzeRequest, setAnalyzeRequest] = useState(null);
+
+  const requestAnalysis = (query) => {
+    setAnalyzeRequest({ query, nonce: Date.now() });
+    setActiveTab('earnings');
+  };
 
   useEffect(() => {
     fetch('/api/health')
@@ -200,10 +209,10 @@ function App() {
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8" style={{ backgroundColor: '#070a12' }}>
         <div style={{ display: activeTab === 'earnings' ? 'block' : 'none', backgroundColor: '#070a12' }}>
-          <TabEarnings />
+          <TabEarnings analyzeRequest={analyzeRequest} />
         </div>
-        <div style={{ display: activeTab === 'news' ? 'block' : 'none', backgroundColor: '#070a12' }}>
-          <TabNews />
+        <div style={{ display: activeTab === 'radar' ? 'block' : 'none', backgroundColor: '#070a12' }}>
+          <TabRadar onAnalyze={requestAnalysis} />
         </div>
         <div style={{ display: activeTab === 'portfolio' ? 'block' : 'none', backgroundColor: '#070a12' }}>
           <TabPortfolio />
@@ -228,7 +237,9 @@ function App() {
           </div>
 
           <div className="flex items-center space-x-4 text-[11px]">
-            <span>Earnings & News: Gemini 2.0 Flash</span>
+            <span>Earnings: Gemini 2.0 Flash</span>
+            <span>•</span>
+            <span>Radar: Nasdaq &amp; SEC EDGAR</span>
             <span>•</span>
             <span className="text-emerald-400">AI Advisor: NVIDIA Nemotron NIM</span>
           </div>

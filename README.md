@@ -36,7 +36,7 @@
             Live 10-Q SEC Filings     • Executive Sentiment (Bull/Bear)
             Earnings Press Releases   • Headline Metrics vs Consensus
             Web Grounding Citations   • Hidden Balance Sheet Headwinds
-                                      • News Volatility Impact Tiers
+                                      • Upcoming Earnings Dates & Consensus
                                       • Portfolio Concentration / Leaks
 ```
 
@@ -48,12 +48,13 @@
 - **Real-Time Web Grounding**: Leverages Gemini with Google Search grounding (`tools=[{"google_search": {}}]`) to search live corporate transcripts, SEC 10-Q/10-K filings, and breaking quarterly disclosures.
 - **Nemotron Executive Scorecard**: Generates Bullish/Neutral/Bearish sentiment badges, metric comparison cards (Revenue, EPS, Guidance, Operating Margins) with Beat/Miss tags, hidden risk alerts, strategic growth catalysts, and clickable Google search grounding citations.
 
-### Tab 2: News & Signal Market Volatility Router
-- **Automated Impact Tiering**: Routes breaking news headlines into color-coded impact tiers:
-  - 🚨 **High Impact**: Flashing beacon for regulatory investigations, antitrust probes, and material restatements.
-  - 🟡 **Medium Impact**: Macro policy, supply chain adjustments, and energy partnerships.
-  - 🔵 **Low Impact**: Routine operational noise and minor product updates.
-- **Anomaly Detection**: Evaluates whether an event constitutes a material systematic risk and issues portfolio hedging directives.
+### Tab 2: Earnings Radar & Calendar
+Answers one question for every company on your watchlist: **when do they report next, and how have they handled the last four quarters?**
+- **Confirmed vs projected dates**: A date is *confirmed* when the company appears on the published Nasdaq earnings calendar (which only reaches a few weeks out), and *projected* otherwise — estimated from the same fiscal quarter a year earlier, which is how companies actually schedule. The two are labeled distinctly and never conflated.
+- **Consensus going in**: Street EPS estimate and analyst count for the upcoming quarter.
+- **Beat/miss history**: The last four quarters of reported EPS against consensus, as a diverging strip, plus the stock's move around the most recent report (close before → close after, so it reads correctly whether the company reports pre-market or after the close).
+- **Watchlist-driven**: Edit the watchlist inline or from your profile; the two share one source of truth. Tickers are validated against SEC EDGAR's company list on entry.
+- **Hand-off to Tab 1**: "Analyze last quarter" sends the company straight into the full Gemini + Nemotron earnings analysis.
 
 ### Tab 3: Portfolio & Capital Leak Auditor
 - **Quantitative Risk Analysis**: Analyzes investment holdings and cash transactions to compute an overall Risk Score (1–100).
@@ -181,27 +182,38 @@ Fetches live earnings filing text using Gemini Google Search grounding, then ana
   }
   ```
 
-### 2. `POST /api/route-news`
-Classifies breaking market events and press releases into risk tiers.
-- **Request Body**:
-  ```json
-  {
-    "headline": "DOJ Issues Civil Investigative Demand Regarding GPU Cloud Allocation",
-    "source": "Financial Times"
-  }
-  ```
+### 2. `GET /api/earnings-calendar`
+Returns the Earnings Radar feed for a watchlist. No API key required — backed by the public Nasdaq earnings calendar and surprise history, SEC EDGAR 8-K item 2.02 filings, and the public price feed.
+- **Query**: `?tickers=NVDA,AAPL,COST&window=30` (`window` = days ahead to scan for confirmed dates, 7–45)
 - **Response**:
   ```json
   {
-    "headline": "DOJ Issues Civil Investigative Demand...",
-    "impact_tier": "High",
-    "is_material_risk": true,
-    "sentiment": "Bearish",
-    "urgency_score": 9,
-    "market_impact_analysis": "Heightened scrutiny may cause volatility in high-beta tech multiples.",
-    "recommended_action": "Hedge delta exposure via index put spreads."
+    "today": "2026-09-19",
+    "events": [
+      {
+        "ticker": "NVDA",
+        "company_name": "NVIDIA CORP",
+        "date": "2026-11-18",
+        "confirmed": false,
+        "timing": "unspecified",
+        "days_away": 60,
+        "consensus_eps": 2.47,
+        "last_report": {
+          "date": "2026-08-26", "eps": 2.22, "consensus": 2.09,
+          "surprise_pct": 6.22, "result": "Beat", "reaction_pct": 7.01
+        },
+        "history": [{ "fiscal_quarter": "Jul 2026", "surprise_pct": 6.22, "result": "Beat" }],
+        "beats_of_last": { "beats": 4, "of": 4 },
+        "price": { "last": 222.27, "day_change_pct": 1.34 }
+      }
+    ],
+    "unscheduled": [],
+    "also_reporting": [{ "ticker": "TSM", "date": "2026-10-15", "market_cap": 2231545630000 }],
+    "confirmed_count": 0
   }
   ```
+
+`POST /api/route-news` (headline risk-tier classification) remains available on the backend, though no screen calls it since the news router was replaced.
 
 ### 3. `POST /api/audit-portfolio`
 Scans holdings and transaction ledgers for concentration and recurring spending drag.

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
 import UserProfileModal from '../components/UserProfileModal';
 
@@ -59,19 +59,62 @@ const DEMO_USER = {
   institution: "SteelHacks Asset Management"
 };
 
+// The watchlist drives the Earnings Radar, so it is the one preference that
+// has to survive a round trip through localStorage unchanged. Everything that
+// writes to it goes through these helpers.
+
+export const MAX_WATCHLIST = 12;
+const DEFAULT_WATCHLIST = ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'META'];
+
+export const normalizeTicker = (raw) =>
+  String(raw ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/^\$+/, '')
+    .replace(/[^A-Z0-9.-]/g, '')
+    .slice(0, 8);
+
+const normalizeWatchlist = (list) => {
+  const out = [];
+  for (const entry of list) {
+    const symbol = normalizeTicker(typeof entry === 'string' ? entry : entry?.symbol);
+    if (symbol && !out.includes(symbol)) out.push(symbol);
+  }
+  return out.slice(0, MAX_WATCHLIST);
+};
+
+// How many days ahead of a report the Radar starts calling a company urgent.
+// Replaces the old "risk tolerance" setting, which nothing in the app read.
+export const PREP_WINDOW_CHOICES = [7, 3, 1];
+const DEFAULT_PREP_WINDOW = 3;
+const LEGACY_RISK_TO_PREP_WINDOW = { Conservative: 7, Balanced: 3, Aggressive: 1 };
+
+const normalizePreferences = (raw) => {
+  const source = raw && typeof raw === 'object' ? raw : {};
+
+  // An absent watchlist means "never configured" and gets the starter set. An
+  // empty array means the user cleared it on purpose, and stays cleared.
+  const watchlist = Array.isArray(source.watchlist)
+    ? normalizeWatchlist(source.watchlist)
+    : DEFAULT_WATCHLIST.slice();
+
+  const stored = Number(source.prepWindowDays);
+  const prepWindowDays = PREP_WINDOW_CHOICES.includes(stored)
+    ? stored
+    : (LEGACY_RISK_TO_PREP_WINDOW[source.riskTolerance] ?? DEFAULT_PREP_WINDOW);
+
+  return { watchlist, prepWindowDays };
+};
+
 const getStoredPreferences = (userId) => {
   const key = `earningspulse_prefs_${userId || 'default'}`;
   try {
     const raw = localStorage.getItem(key);
-    if (raw) return JSON.parse(raw);
+    if (raw) return normalizePreferences(JSON.parse(raw));
   } catch {
     // ignore
   }
-  return {
-    riskTolerance: 'Balanced',
-    watchlist: ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'META'],
-    savedSignals: []
-  };
+  return normalizePreferences(null);
 };
 
 const saveStoredPreferences = (userId, prefs) => {
@@ -109,6 +152,102 @@ const saveStoredPortfolio = (userId, portfolio) => {
 };
 
 // ----------------------------------------------------------------------
+// Shared per-user state
+// ----------------------------------------------------------------------
+
+/**
+ * Everything that belongs to a signed-in analyst: the watchlist the Earnings
+ * Radar reads, the prep window it highlights against, and any uploaded
+ * portfolio. Both providers below use this, so the Auth0 and demo paths cannot
+ * drift apart, and every screen edits one copy of the truth rather than its
+ * own snapshot.
+ */
+const useUserData = (userKey) => {
+  const [preferences, setPreferences] = useState(() => getStoredPreferences(userKey));
+  const [uploadedPortfolio, setUploadedPortfolioState] = useState(() => getStoredPortfolio(userKey));
+
+  useEffect(() => {
+    setPreferences(getStoredPreferences(userKey));
+    setUploadedPortfolioState(getStoredPortfolio(userKey));
+  }, [userKey]);
+
+  // Every preference write lands here, so state and localStorage cannot drift
+  // and each edit is normalized identically whichever screen made it.
+  const commitPreferences = useCallback((updater) => {
+    setPreferences(prev => {
+      const draft = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
+      const next = normalizePreferences(draft);
+      saveStoredPreferences(userKey, next);
+      return next;
+    });
+  }, [userKey]);
+
+  const watchlist = preferences.watchlist;
+
+  // Reports why it refused rather than failing silently, so the caller can say
+  // "already watching NVDA" instead of just looking broken.
+  const addToWatchlist = useCallback((ticker) => {
+    const symbol = normalizeTicker(ticker);
+    if (!symbol) return { status: 'invalid', symbol: '' };
+    if (watchlist.includes(symbol)) return { status: 'duplicate', symbol };
+    if (watchlist.length >= MAX_WATCHLIST) return { status: 'full', symbol };
+
+    commitPreferences(prev => ({ ...prev, watchlist: [...prev.watchlist, symbol] }));
+    return { status: 'added', symbol };
+  }, [watchlist, commitPreferences]);
+
+  const removeFromWatchlist = useCallback((ticker) => {
+    const symbol = normalizeTicker(ticker);
+    commitPreferences(prev => ({
+      ...prev,
+      watchlist: prev.watchlist.filter(t => t !== symbol)
+    }));
+  }, [commitPreferences]);
+
+  const isWatched = useCallback(
+    (ticker) => watchlist.includes(normalizeTicker(ticker)),
+    [watchlist]
+  );
+
+  const setPrepWindow = useCallback(
+    (days) => commitPreferences({ prepWindowDays: Number(days) }),
+    [commitPreferences]
+  );
+
+  const setUploadedPortfolio = useCallback((portfolio) => {
+    setUploadedPortfolioState(portfolio);
+    saveStoredPortfolio(userKey, portfolio);
+  }, [userKey]);
+
+  const clearUploadedPortfolio = useCallback(() => {
+    setUploadedPortfolioState(null);
+    saveStoredPortfolio(userKey, null);
+  }, [userKey]);
+
+  return useMemo(() => ({
+    userPreferences: preferences,
+    updateUserPreferences: commitPreferences,
+    watchlist,
+    addToWatchlist,
+    removeFromWatchlist,
+    isWatched,
+    prepWindowDays: preferences.prepWindowDays,
+    setPrepWindow,
+    uploadedPortfolio,
+    setUploadedPortfolio,
+    clearUploadedPortfolio,
+    hasPersonalData: Boolean(uploadedPortfolio && (
+      (uploadedPortfolio.holdings && uploadedPortfolio.holdings.length > 0) ||
+      (uploadedPortfolio.transactions && uploadedPortfolio.transactions.length > 0)
+    ))
+  }), [
+    preferences, watchlist, uploadedPortfolio, commitPreferences,
+    addToWatchlist, removeFromWatchlist, isWatched, setPrepWindow,
+    setUploadedPortfolio, clearUploadedPortfolio
+  ]);
+};
+
+// ----------------------------------------------------------------------
 // Inner Consumer for live Auth0 provider
 // ----------------------------------------------------------------------
 const Auth0InnerConsumer = ({
@@ -140,13 +279,7 @@ const Auth0InnerConsumer = ({
 
   const activeUser = a0Auth ? a0User : demoUser;
   const userKey = activeUser?.sub || activeUser?.email || (demoUser ? 'demo' : 'guest');
-  const [userPreferences, setUserPreferences] = useState(() => getStoredPreferences(userKey));
-  const [uploadedPortfolio, setUploadedPortfolioState] = useState(() => getStoredPortfolio(userKey));
-
-  useEffect(() => {
-    setUserPreferences(getStoredPreferences(userKey));
-    setUploadedPortfolioState(getStoredPortfolio(userKey));
-  }, [userKey]);
+  const userData = useUserData(userKey);
 
   // When live Auth0 authenticates, clear any demo state
   useEffect(() => {
@@ -159,37 +292,6 @@ const Auth0InnerConsumer = ({
       }
     }
   }, [a0Auth]);
-
-  const updateUserPreferences = (newPrefs) => {
-    setUserPreferences(newPrefs);
-    saveStoredPreferences(userKey, newPrefs);
-  };
-
-  const setUploadedPortfolio = (portfolio) => {
-    setUploadedPortfolioState(portfolio);
-    saveStoredPortfolio(userKey, portfolio);
-  };
-
-  const clearUploadedPortfolio = () => {
-    setUploadedPortfolioState(null);
-    saveStoredPortfolio(userKey, null);
-  };
-
-  const toggleBookmarkSignal = (signal) => {
-    setUserPreferences(prev => {
-      const exists = (prev.savedSignals || []).some(s => s.id === signal.id);
-      const updated = exists
-        ? (prev.savedSignals || []).filter(s => s.id !== signal.id)
-        : [signal, ...(prev.savedSignals || [])];
-      const newPrefs = { ...prev, savedSignals: updated };
-      saveStoredPreferences(userKey, newPrefs);
-      return newPrefs;
-    });
-  };
-
-  const isSignalBookmarked = (signalId) => {
-    return Boolean((userPreferences?.savedSignals || []).some(s => s.id === signalId));
-  };
 
   const loginAsDemo = () => {
     setDemoUser(DEMO_USER);
@@ -247,17 +349,7 @@ const Auth0InnerConsumer = ({
     isProfileModalOpen,
     openProfileModal,
     closeProfileModal,
-    userPreferences,
-    updateUserPreferences,
-    toggleBookmarkSignal,
-    isSignalBookmarked,
-    uploadedPortfolio,
-    setUploadedPortfolio,
-    clearUploadedPortfolio,
-    hasPersonalData: Boolean(uploadedPortfolio && (
-      (uploadedPortfolio.holdings && uploadedPortfolio.holdings.length > 0) ||
-      (uploadedPortfolio.transactions && uploadedPortfolio.transactions.length > 0)
-    ))
+    ...userData
   }), [
     demoUser,
     a0Auth,
@@ -266,8 +358,7 @@ const Auth0InnerConsumer = ({
     a0Error,
     authConfig,
     isProfileModalOpen,
-    userPreferences,
-    uploadedPortfolio
+    userData
   ]);
 
   return (
@@ -299,44 +390,7 @@ const StandaloneConsumer = ({
   });
 
   const userKey = demoUser ? 'demo' : 'guest';
-  const [userPreferences, setUserPreferences] = useState(() => getStoredPreferences(userKey));
-  const [uploadedPortfolio, setUploadedPortfolioState] = useState(() => getStoredPortfolio(userKey));
-
-  useEffect(() => {
-    setUserPreferences(getStoredPreferences(userKey));
-    setUploadedPortfolioState(getStoredPortfolio(userKey));
-  }, [userKey]);
-
-  const updateUserPreferences = (newPrefs) => {
-    setUserPreferences(newPrefs);
-    saveStoredPreferences(userKey, newPrefs);
-  };
-
-  const setUploadedPortfolio = (portfolio) => {
-    setUploadedPortfolioState(portfolio);
-    saveStoredPortfolio(userKey, portfolio);
-  };
-
-  const clearUploadedPortfolio = () => {
-    setUploadedPortfolioState(null);
-    saveStoredPortfolio(userKey, null);
-  };
-
-  const toggleBookmarkSignal = (signal) => {
-    setUserPreferences(prev => {
-      const exists = (prev.savedSignals || []).some(s => s.id === signal.id);
-      const updated = exists
-        ? (prev.savedSignals || []).filter(s => s.id !== signal.id)
-        : [signal, ...(prev.savedSignals || [])];
-      const newPrefs = { ...prev, savedSignals: updated };
-      saveStoredPreferences(userKey, newPrefs);
-      return newPrefs;
-    });
-  };
-
-  const isSignalBookmarked = (signalId) => {
-    return Boolean((userPreferences?.savedSignals || []).some(s => s.id === signalId));
-  };
+  const userData = useUserData(userKey);
 
   const loginAsDemo = () => {
     setDemoUser(DEMO_USER);
@@ -380,18 +434,8 @@ const StandaloneConsumer = ({
     isProfileModalOpen,
     openProfileModal,
     closeProfileModal,
-    userPreferences,
-    updateUserPreferences,
-    toggleBookmarkSignal,
-    isSignalBookmarked,
-    uploadedPortfolio,
-    setUploadedPortfolio,
-    clearUploadedPortfolio,
-    hasPersonalData: Boolean(uploadedPortfolio && (
-      (uploadedPortfolio.holdings && uploadedPortfolio.holdings.length > 0) ||
-      (uploadedPortfolio.transactions && uploadedPortfolio.transactions.length > 0)
-    ))
-  }), [demoUser, authConfig, isProfileModalOpen, userPreferences, uploadedPortfolio]);
+    ...userData
+  }), [demoUser, authConfig, isProfileModalOpen, userData]);
 
   return (
     <AuthContext.Provider value={contextValue}>

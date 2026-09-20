@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldAlert, Cpu, Globe, LogOut, ShieldCheck, Lock, Brain } from 'lucide-react';
+import { Activity, CalendarClock, Cpu, Globe, LogOut, ShieldCheck, Lock, Brain } from 'lucide-react';
 import { useAppAuth } from '../auth/AuthContext';
 
 const Navbar = ({ activeTab, setActiveTab }) => {
@@ -115,15 +115,15 @@ const Navbar = ({ activeTab, setActiveTab }) => {
 
           <button
             type="button"
-            onClick={() => setActiveTab('news')}
+            onClick={() => setActiveTab('radar')}
             className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-colors duration-150 cursor-pointer focus:outline-none border ${
-              activeTab === 'news'
+              activeTab === 'radar'
                 ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/10'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border-transparent'
             }`}
           >
-            <ShieldAlert className="h-4 w-4 text-amber-400" />
-            <span>2. News & Signal Router</span>
+            <CalendarClock className="h-4 w-4 text-amber-400" />
+            <span>2. Earnings Radar &amp; Calendar</span>
           </button>
 
           <button

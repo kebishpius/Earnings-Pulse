@@ -102,7 +102,7 @@ const FALLBACK_EARNINGS_DATABASE = {
   }
 };
 
-const TabEarnings = () => {
+const TabEarnings = ({ analyzeRequest }) => {
   const [query, setQuery] = useState('Apple Q3 2026 earnings report revenue iPhone services');
   const [loading, setLoading] = useState(false);
   const [pipelineStage, setPipelineStage] = useState('');
@@ -359,6 +359,18 @@ const TabEarnings = () => {
     setQuery(pick.query);
     handleSearch(pick.query);
   };
+
+  // The Radar tab can hand a company over to be analyzed. Each hand-off
+  // carries its own nonce, so picking the same company twice runs it twice
+  // while a plain re-render never re-runs the last one.
+  const lastHandoff = useRef(null);
+  useEffect(() => {
+    if (!analyzeRequest || analyzeRequest.nonce === lastHandoff.current) return;
+    lastHandoff.current = analyzeRequest.nonce;
+    setQuery(analyzeRequest.query);
+    setShowSuggestions(false);
+    handleSearch(analyzeRequest.query);
+  }, [analyzeRequest]);
 
   const getSentimentBadge = (sentiment = 'Bullish') => {
     const s = (sentiment || '').toLowerCase();
