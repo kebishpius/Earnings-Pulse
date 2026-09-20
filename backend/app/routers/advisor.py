@@ -377,7 +377,7 @@ async def parse_uploaded_data(request: ParseDataRequest):
         DEBIT_COLS = ("Debit", "Debit Amount", "Withdrawal", "Withdrawal Amount", "Money Out")
         CREDIT_COLS = ("Credit", "Credit Amount", "Deposit", "Deposit Amount", "Money In")
         INDICATOR_COLS = ("Debit/Credit", "Dr/Cr", "Cr/Dr", "Direction")
-        ACTION_COLS = ("Action", "Activity", "Activity Type", "Transaction Type", "Trans Type", "Order Type", "Buy/Sell", "Type")
+        ACTION_COLS = ("Action", "Activity", "Activity Type", "Transaction Type", "Trans Type", "Trans Code", "Order Type", "Buy/Sell", "Type")
         DATE_COLS = ("Date", "Run Date", "Trade Date", "Transaction Date", "Posted Date", "Post Date", "Posting Date", "Activity Date", "Settlement Date")
 
         rows = list(reader)
@@ -551,6 +551,13 @@ async def parse_uploaded_data(request: ParseDataRequest):
                 sym = str(pick(row, "Symbol", "Ticker") or "").strip().upper()
                 if not desc:
                     desc = " ".join(p for p in (action, sym) if p) or f"Transaction {i+1}"
+                # Strip CUSIP/ISIN/SEDOL identifiers that brokers embed in description fields
+                # (csv.DictReader preserves actual newlines inside quoted fields)
+                desc = str(desc).split("\n")[0].strip()
+                desc = re.sub(r'\s*CUSIP:\s*[A-Z0-9]+', '', desc, flags=re.I).strip()
+                desc = re.sub(r'\s*ISIN:\s*[A-Z]{2}[A-Z0-9]{10}', '', desc, flags=re.I).strip()
+                desc = re.sub(r'\s*SEDOL:\s*[A-Z0-9]+', '', desc, flags=re.I).strip()
+                desc = re.sub(r'\s*Primary Issue\s*', '', desc, flags=re.I).strip()
                 date = pick(row, *DATE_COLS) or ""
 
                 raw_cat = str(pick(row, "Category", "Classification") or "").strip()
@@ -567,6 +574,90 @@ async def parse_uploaded_data(request: ParseDataRequest):
                     amount=amount,
                     category=str(category)
                 ))
+
+
+            # ── Reconstruct holdings from trade activity ──────────────
+            # Aggregate Buy/Sell/REC per ticker to find which stocks are still held.
+            reconstructed_holdings = []
+            if has_directional_actions:
+                positions = {}  # symbol -> { shares, latest_price, name }
+                TRADE_ACTIONS = re.compile(r'^(buy|sell|sold|rec|bought)$', re.I)
+
+                for row in rows:
+                    sym = str(pick(row, "Symbol", "Ticker", "Ticker Symbol", "Stock", "Instrument") or "").strip().upper()
+                    sym = re.sub(r"[^A-Z0-9.\-]", "", sym)[:12]
+                    if not sym:
+                        continue
+
+                    action_raw = str(pick(row, *ACTION_COLS) or "").strip()
+                    if not action_raw or not TRADE_ACTIONS.match(action_raw):
+                        continue
+
+                    qty = clean_money(pick(row, "Quantity", "Shares", "Qty", "Units"))
+                    price = clean_money(pick(row, "Price", "Last Price", "Current Price", "Market Price"))
+
+                    if qty is None or qty == 0:
+                        continue
+
+                    if sym not in positions:
+                        desc_raw = str(pick(row, "Description", "Name", "Security Description") or sym)
+                        # Take only the first physical line (before the CUSIP continuation)
+                        # and strip any CUSIP/ISIN/SEDOL identifiers that may be inline.
+                        name = desc_raw.split("\n")[0].strip()
+                        name = re.sub(r'\s*CUSIP:\s*[A-Z0-9]+', '', name, flags=re.I).strip()
+                        name = re.sub(r'\s*ISIN:\s*[A-Z]{2}[A-Z0-9]{10}', '', name, flags=re.I).strip()
+                        name = re.sub(r'\s*SEDOL:\s*[A-Z0-9]+', '', name, flags=re.I).strip()
+                        name = re.sub(r'\s*Primary Issue\s*', '', name, flags=re.I).strip()
+                        positions[sym] = {"shares": 0.0, "latest_price": 0.0, "name": name or sym}
+
+
+                    if price and price > 0 and positions[sym]["latest_price"] == 0:
+                        positions[sym]["latest_price"] = price
+
+                    action_lower = action_raw.lower()
+                    if action_lower in ("buy", "bought", "rec"):
+                        positions[sym]["shares"] += qty
+                    elif action_lower in ("sell", "sold"):
+                        positions[sym]["shares"] -= qty
+
+                for sym, data in positions.items():
+                    net_shares = round(data["shares"], 6)
+                    if net_shares > 0.0001 and data["latest_price"] > 0:
+                        val = round(net_shares * data["latest_price"], 2)
+                        name_lower = data["name"].lower()
+                        if sym in ("USD", "CASH", "SPAXX", "FDRXX", "SWVXX", "VMFXX", "FZFXX") or "money market" in name_lower:
+                            atype = "Cash"
+                        elif sym in ("BTC", "ETH", "SOL", "DOGE", "ADA", "XRP"):
+                            atype = "Crypto"
+                        elif sym in ("SPY", "QQQ", "VOO", "VTI", "IWM") or " etf" in name_lower:
+                            atype = "ETF"
+                        else:
+                            atype = "Equity"
+                        reconstructed_holdings.append(ParsedHolding(
+                            symbol=sym,
+                            asset_name=data["name"],
+                            asset_type=atype,
+                            current_value=val,
+                            allocation_pct=0.0
+                        ))
+
+                # Compute allocation percentages
+                if reconstructed_holdings:
+                    gross_val = sum(abs(h.current_value) for h in reconstructed_holdings)
+                    if gross_val > 0:
+                        for h in reconstructed_holdings:
+                            h.allocation_pct = round((h.current_value / gross_val) * 100, 1)
+                    # Sort by value descending
+                    reconstructed_holdings.sort(key=lambda h: abs(h.current_value), reverse=True)
+
+            if reconstructed_holdings:
+                return ParseDataResponse(
+                    data_type="mixed",
+                    holdings=reconstructed_holdings,
+                    transactions=transactions,
+                    count=len(reconstructed_holdings) + len(transactions),
+                    parse_method="Smart Activity CSV Parser (Holdings Reconstructed)"
+                )
 
             return ParseDataResponse(
                 data_type="transactions",

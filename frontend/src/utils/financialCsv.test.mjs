@@ -58,13 +58,15 @@ check('parseMoney EU decimal', parseMoney('1.234,56 EUR'), 1234.56);
 
 // ── Broker activity export: buys out, sells and dividends in ──
 {
-  const { transactions, dataType } = parseFinancialCsv(
+  const { transactions, holdings, dataType } = parseFinancialCsv(
 `Run Date,Action,Symbol,Description,Quantity,Price,Amount
 2026-08-04,BUY,NVDA,NVIDIA CORP,50,118.50,5925.00
 2026-08-09,SELL,AAPL,APPLE INC,40,224.20,8968.00
 2026-08-12,DIVIDEND RECEIVED,MSFT,MICROSOFT CORP,,,92.40
 2026-08-12,FEE,,COMMISSION,,,4.95`);
-  check('activity file is not read as holdings', dataType, 'transactions');
+  check('activity file with unsold positions returns mixed', dataType, 'mixed');
+  check('reconstructed holdings excludes sell-only AAPL', holdings.map(h => h.symbol), ['NVDA']);
+
   check('buy is out, sell is in, dividend is in, fee is out',
     transactions.map(t => t.amount), [-5925, 8968, 92.4, -4.95]);
   check('trade category derived', transactions.map(t => t.category),
@@ -167,6 +169,26 @@ Payment,2026-08-05,Payment Thank You,100.00`);
 2026-08-05,Target Store,-45.00`);
   check('selling stock is positive inflow, buying stock and coffee are outflows',
     transactions.map(t => t.amount), [500, -1000, -5.5, 3000, -45]);
+}
+
+// ── Holdings reconstruction: sold stocks excluded, held stocks included ──
+{
+  const { holdings, dataType } = parseFinancialCsv(
+`Activity Date,Instrument,Trans Code,Quantity,Price,Amount
+2026-09-01,TSLA,Buy,10,$250.00,($2500.00)
+2026-09-05,TSLA,Sell,10,$260.00,$2600.00
+2026-09-02,NVDA,Buy,5,$120.00,($600.00)
+2026-09-03,AAPL,Buy,20,$180.00,($3600.00)
+2026-09-06,AAPL,Sell,10,$190.00,$1900.00`);
+  check('sold-out TSLA excluded from holdings',
+    holdings.some(h => h.symbol === 'TSLA'), false);
+  check('partially sold AAPL still in holdings',
+    holdings.some(h => h.symbol === 'AAPL'), true);
+  check('AAPL has 10 remaining shares valued correctly',
+    holdings.find(h => h.symbol === 'AAPL')?.current_value, 1800);
+  check('unsold NVDA in holdings',
+    holdings.some(h => h.symbol === 'NVDA'), true);
+  check('activity with holdings returns mixed', dataType, 'mixed');
 }
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);

@@ -50,6 +50,50 @@ const splitRow = (line, delimiter) => {
   return out;
 };
 
+// RFC 4180 row splitter: splits raw CSV text into logical rows, correctly
+// handling newlines that appear inside quoted fields (e.g. Robinhood exports
+// embed the CUSIP number on a second line inside the Description quote).
+// Returns an array of strings, one per logical CSV row.
+const splitIntoRows = (rawText) => {
+  const rows = [];
+  let row = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < rawText.length; i++) {
+    const ch = rawText[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (rawText[i + 1] === '"') { row += '""'; i++; } // escaped quote
+        else { inQuotes = false; row += ch; }
+      } else {
+        // Newlines inside a quoted field become spaces so the field stays on
+        // one logical line (the CUSIP line merges into the description).
+        if (ch === '\r' || ch === '\n') {
+          // Skip \r\n pair
+          if (ch === '\r' && rawText[i + 1] === '\n') i++;
+          row += ' ';
+        } else {
+          row += ch;
+        }
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+      row += ch;
+    } else if (ch === '\r' || ch === '\n') {
+      // Skip \r\n pair
+      if (ch === '\r' && rawText[i + 1] === '\n') i++;
+      const trimmed = row.trim();
+      if (trimmed) rows.push(trimmed);
+      row = '';
+    } else {
+      row += ch;
+    }
+  }
+  const trimmed = row.trim();
+  if (trimmed) rows.push(trimmed);
+  return rows;
+};
+
 // Brokers export comma, tab and (in EU locales) semicolon separated files.
 // Whichever character yields the most columns on the header row wins.
 const detectDelimiter = (line) => {
@@ -206,7 +250,7 @@ const COLUMN_ALIASES = {
   debit: ['debit amount', 'withdrawal amount', 'debit', 'withdrawals', 'withdrawal', 'money out', 'paid out'],
   credit: ['credit amount', 'deposit amount', 'credit', 'deposits', 'deposit', 'money in', 'paid in'],
   indicator: ['debit/credit', 'dr/cr', 'cr/dr', 'debit or credit', 'debit credit indicator', 'direction'],
-  action: ['action', 'activity type', 'activity', 'transaction type', 'trans type', 'order type', 'trade type', 'buy/sell', 'type', 'side'],
+  action: ['action', 'activity type', 'activity', 'transaction type', 'trans type', 'trans code', 'order type', 'trade type', 'buy/sell', 'type', 'side'],
   side: ['long/short', 'long short', 'position type', 'side'],
   category: ['category', 'classification', 'transaction type', 'type'],
 };
@@ -319,8 +363,10 @@ const deriveCategory = (action = '', amount = 0, description = '') => {
  * instead of "import failed".
  */
 export const parseFinancialCsv = (rawText) => {
-  const text = String(rawText || '').replace(/^﻿/, '');
-  const lines = text.split(/\r\n|\r|\n/).map(l => l.trim()).filter(Boolean);
+  const text = String(rawText || '').replace(/^\uFEFF/, '');
+  // splitIntoRows handles RFC 4180 multiline quoted fields (e.g. Robinhood
+  // embeds "CUSIP: ..." on a continuation line inside the Description quote).
+  const lines = splitIntoRows(text);
 
   if (lines.length < 2) {
     throw new Error('This file needs a header row and at least one data row.');
@@ -517,7 +563,13 @@ export const parseFinancialCsv = (rawText) => {
     transactions.push({
       date: dateIdx !== -1 ? (cols[dateIdx] || '') : '',
       // A trade row has no merchant, so "Sell NVDA" beats "Transaction 4".
-      description: label || [action, symbol].filter(Boolean).join(' ') || `Transaction ${i + 1}`,
+      // Strip CUSIP/ISIN codes that brokers embed in description fields.
+      description: (label || [action, symbol].filter(Boolean).join(' ') || `Transaction ${i + 1}`)
+        .replace(/\s*CUSIP:\s*[A-Z0-9]+/gi, '')
+        .replace(/\s*ISIN:\s*[A-Z]{2}[A-Z0-9]{10}/gi, '')
+        .replace(/\s*SEDOL:\s*[A-Z0-9]+/gi, '')
+        .replace(/\s*Primary Issue\s*/gi, '')
+        .trim(),
       amount,
       category: effectiveCategory,
     });
@@ -525,6 +577,85 @@ export const parseFinancialCsv = (rawText) => {
 
   if (transactions.length === 0) {
     throw new Error('Found a statement header but no row had a usable amount.');
+  }
+
+  // ── Reconstruct holdings from trade activity ──────────────────────────────
+  // When we have a Buy/Sell activity export, aggregate net shares per ticker.
+  // Stocks where net shares > 0 are still held; fully sold stocks are excluded.
+  const reconstructedHoldings = [];
+  if (hasDirectionalActions && symbolIdx !== -1) {
+    const positions = {};  // symbol -> { shares, latestPrice, name }
+
+    for (const cols of dataRows) {
+      const rawSym = cols[symbolIdx] ?? '';
+      const sym = normalizeSymbol(rawSym);
+      if (!sym) continue;
+
+      const actionRaw = actionIdx !== -1 ? String(cols[actionIdx] || '').trim().toLowerCase() : '';
+      // Only process Buy, Sell, REC (stock received/reward) transactions
+      if (!actionRaw || !/^(buy|sell|sold|rec|bought)$/i.test(actionRaw)) continue;
+
+      const qty = quantityIdx !== -1 ? parseMoney(cols[quantityIdx]) : null;
+      const price = priceIdx !== -1 ? parseMoney(cols[priceIdx]) : null;
+
+      if (qty === null || qty === 0) continue;
+
+      if (!positions[sym]) {
+        // Extract company name from description, stripping CUSIP/ISIN/SEDOL codes and
+        // any "Primary Issue" label that Robinhood appends in the same field after
+        // splitIntoRows() has merged the continuation line with a space.
+        let rawDesc = (descIdx !== -1 ? (cols[descIdx] || '') : '').trim();
+        // Strip CUSIP, ISIN, SEDOL identifiers and trailing labels
+        rawDesc = rawDesc
+          .replace(/\s*CUSIP:\s*[A-Z0-9]+/gi, '')
+          .replace(/\s*ISIN:\s*[A-Z]{2}[A-Z0-9]{10}/gi, '')
+          .replace(/\s*SEDOL:\s*[A-Z0-9]+/gi, '')
+          .replace(/\s*Primary Issue\s*/gi, '')
+          .trim();
+        positions[sym] = { shares: 0, latestPrice: 0, name: rawDesc || sym };
+      }
+
+      // Track the most recent price seen for this symbol (first row = most recent date)
+      if (price && price > 0 && positions[sym].latestPrice === 0) {
+        positions[sym].latestPrice = price;
+      }
+
+      if (/^(buy|bought|rec)$/i.test(actionRaw)) {
+        positions[sym].shares += qty;
+      } else if (/^(sell|sold)$/i.test(actionRaw)) {
+        positions[sym].shares -= qty;
+      }
+    }
+
+    // Build holdings from symbols that still have positive shares
+    for (const [sym, data] of Object.entries(positions)) {
+      const netShares = Math.round(data.shares * 1e6) / 1e6;  // avoid float noise
+      if (netShares > 0.0001 && data.latestPrice > 0) {
+        reconstructedHoldings.push({
+          symbol: sym,
+          asset_name: data.name || sym,
+          asset_type: classifyAsset(sym, data.name),
+          current_value: Math.round(netShares * data.latestPrice * 100) / 100,
+          allocation_pct: 0,
+        });
+      }
+    }
+
+    // Compute allocation percentages
+    if (reconstructedHoldings.length > 0) {
+      const grossVal = reconstructedHoldings.reduce((acc, h) => acc + Math.abs(h.current_value), 0);
+      if (grossVal > 0) {
+        reconstructedHoldings.forEach(h => {
+          h.allocation_pct = Math.round((h.current_value / grossVal) * 1000) / 10;
+        });
+      }
+      // Sort by value descending
+      reconstructedHoldings.sort((a, b) => Math.abs(b.current_value) - Math.abs(a.current_value));
+    }
+  }
+
+  if (reconstructedHoldings.length > 0) {
+    return { holdings: reconstructedHoldings, transactions, dataType: 'mixed', skipped };
   }
   return { holdings: [], transactions, dataType: 'transactions', skipped };
 };
