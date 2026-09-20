@@ -22,18 +22,27 @@ def analyze_portfolio_and_generate_advice(
     last_audit = context.get("last_audit") or {}
     
     total_portfolio_val = sum(float(h.get("current_value", 0)) for h in holdings)
-    total_spend = sum(float(t.get("amount", 0)) for t in transactions)
-    
-    # Sort holdings by value
-    sorted_holdings = sorted(holdings, key=lambda x: float(x.get("current_value", 0)), reverse=True)
+
+    # Amounts are signed: negative is cash out, positive is cash in. Spending is
+    # the outflow side only — summing the ledger raw made a month with a
+    # paycheck in it look almost free.
+    outflows = [t for t in transactions if float(t.get("amount", 0)) < 0]
+    inflows = [t for t in transactions if float(t.get("amount", 0)) > 0]
+    total_spend = sum(abs(float(t.get("amount", 0))) for t in outflows)
+    total_income = sum(float(t.get("amount", 0)) for t in inflows)
+    net_flow = total_income - total_spend
+
+    # Sort holdings by exposure, so a large short ranks with the large longs
+    # rather than sinking to the bottom of the list.
+    sorted_holdings = sorted(holdings, key=lambda x: abs(float(x.get("current_value", 0))), reverse=True)
     top_holding = sorted_holdings[0] if sorted_holdings else None
-    
+
     # Category spending breakdown
     cat_spend: Dict[str, float] = {}
-    for t in transactions:
+    for t in outflows:
         cat = t.get("category", "Other")
-        cat_spend[cat] = cat_spend.get(cat, 0.0) + float(t.get("amount", 0))
-    
+        cat_spend[cat] = cat_spend.get(cat, 0.0) + abs(float(t.get("amount", 0)))
+
     sorted_categories = sorted(cat_spend.items(), key=lambda x: x[1], reverse=True)
     
     # Check for recurring subscriptions or SaaS in transactions
@@ -41,8 +50,9 @@ def analyze_portfolio_and_generate_advice(
         "subscription", "spotify", "netflix", "bloomberg", "aws", "midjourney", 
         "chatgpt", "cloud", "gym", "equinox", "membership", "prime", "sub"
     ]
+    # Outflows only: a dividend from a streaming stock is not a subscription.
     flagged_subscriptions = [
-        t for t in transactions
+        t for t in outflows
         if any(k in t.get("description", "").lower() or k in t.get("category", "").lower() for k in subscription_keywords)
     ]
     
@@ -70,7 +80,8 @@ def analyze_portfolio_and_generate_advice(
             lines = [
                 f"{followup_lead}### **NVIDIA Nemotron Quantitative Cashflow Audit**",
                 f"**Capital Drag & Expenditure Variance Analysis:**",
-                f"Total logged outflows across {len(transactions)} transactions stand at **${total_spend:,.2f}**."
+                f"Total logged outflows across {len(transactions)} transactions stand at **${total_spend:,.2f}**, "
+                f"against **${total_income:,.2f}** of recorded inflow — net cashflow of **${net_flow:+,.2f}**."
             ]
             if sorted_categories:
                 top_cats = ", ".join(f"**{c[0]}** (${c[1]:,.2f}, {c[1]/total_spend*100:.1f}%)" for c in sorted_categories[:3]) if total_spend > 0 else "None"
@@ -92,7 +103,7 @@ def analyze_portfolio_and_generate_advice(
             # Anthropic Claude persona: Behavioral finance, lifestyle optimization, cognitive friction
             lines = [
                 f"{followup_lead}### **Claude Behavioral Cashflow Analysis**",
-                f"Looking at your transaction ledger, you've recorded **${total_spend:,.2f}** in total outflows across {len(transactions)} entries.",
+                f"Looking at your transaction ledger, you've recorded **${total_spend:,.2f}** in outflows and **${total_income:,.2f}** in inflows across {len(transactions)} entries.",
                 f"\nHere is where your capital is concentrating and where behavioral adjustments will have the highest leverage:"
             ]
             if sorted_categories:
@@ -140,9 +151,11 @@ def analyze_portfolio_and_generate_advice(
     # SCENARIO B: Subscriptions / Leaks / Cancellations
     # ──────────────────────────────────────────────────────────────────────────
     elif any(k in msg_lower for k in ["subscription", "subscriptions", "leak", "leaks", "cancel", "recurring", "cancelation"]):
-        sub_total = sum(float(t.get("amount", 0)) for t in flagged_subscriptions)
+        # Costs are quoted as positive figures even though the ledger stores
+        # them negative, so "$-19.99/mo" never reaches the user.
+        sub_total = sum(abs(float(t.get("amount", 0))) for t in flagged_subscriptions)
         sub_list_str = "\n".join(
-            f"- **{t.get('description', 'Unknown')}**: ${float(t.get('amount', 0)):.2f}/mo (`{t.get('category', 'SaaS')}`)"
+            f"- **{t.get('description', 'Unknown')}**: ${abs(float(t.get('amount', 0))):.2f}/mo (`{t.get('category', 'SaaS')}`)"
             for t in flagged_subscriptions
         ) if flagged_subscriptions else "- No obvious high-drag recurring subscriptions detected in current ledger."
 

@@ -6,28 +6,40 @@ import BrokerageConnectModal from './BrokerageConnectModal';
 import { parseFinancialCsv } from '../utils/financialCsv';
 
 
-// Client-side quantitative risk auditor if backend is offline/unreachable
+// Client-side quantitative risk auditor if backend is offline/unreachable.
+// Amounts arrive signed (negative = cash out), so every rule here filters on
+// direction first: auditing a paycheck as a spending anomaly, or a short
+// position as an overweight holding, is worse than missing it.
 const generateClientSideAudit = (holdings, transactions) => {
-  // 1. Identify Concentration Risks (> 25% allocation)
+  const outflows = transactions.filter((t) => parseFloat(t.amount) < 0);
+  const inflows = transactions.filter((t) => parseFloat(t.amount) > 0);
+
+  // 1. Identify Concentration Risks (> 25% of gross exposure, long or short)
   const concentrationRisks = holdings
-    .filter((h) => h.allocation_pct > 25.0)
-    .map((h) => ({
-      asset_or_sector: `${h.symbol} (${h.asset_name || h.symbol})`,
-      allocation_pct: h.allocation_pct,
-      max_recommended_pct: 20.0,
-      risk_comment: `Position allocation of ${h.allocation_pct}% significantly exceeds institutional prudential threshold (20%). Elevates portfolio vulnerability to single-asset drawdown shocks.`
-    }));
+    .filter((h) => Math.abs(h.allocation_pct) > 25.0)
+    .map((h) => {
+      const isShort = h.current_value < 0;
+      const weight = Math.abs(h.allocation_pct);
+      return {
+        asset_or_sector: `${h.symbol} (${h.asset_name || h.symbol})${isShort ? ' — SHORT' : ''}`,
+        allocation_pct: weight,
+        max_recommended_pct: 20.0,
+        risk_comment: isShort
+          ? `Short exposure of ${weight}% of gross book carries unbounded upside risk and exceeds the 20% prudential threshold.`
+          : `Position allocation of ${weight}% significantly exceeds institutional prudential threshold (20%). Elevates portfolio vulnerability to single-asset drawdown shocks.`
+      };
+    });
 
   // 2. Identify Subscription Leaks (keywords: sub, duplicate, premium, cloud, recurring, fit, entertainment)
   const subKeywords = ['subscription', 'sub', 'spotify', 'netflix', 'aws', 'cloud', 'gym', 'equinox', 'bloomberg', 'chatgpt', 'midjourney'];
-  const subscriptionLeaks = transactions
+  const subscriptionLeaks = outflows
     .filter((t) => {
       const desc = t.description.toLowerCase();
       const cat = (t.category || '').toLowerCase();
       return subKeywords.some((kw) => desc.includes(kw) || cat.includes(kw) || cat.includes('sub'));
     })
     .map((t) => {
-      const monthly = parseFloat(t.amount);
+      const monthly = Math.abs(parseFloat(t.amount));
       const annual = Math.round(monthly * 12 * 100) / 100;
       return {
         service: t.description,
@@ -38,15 +50,18 @@ const generateClientSideAudit = (holdings, transactions) => {
       };
     });
 
-  // 3. Identify High-Variance Spending Anomalies (> $300)
-  const spendingAnomalies = transactions
-    .filter((t) => parseFloat(t.amount) >= 300.0)
-    .map((t) => ({
-      category: t.category || "High Outflow",
-      description: t.description,
-      amount: parseFloat(t.amount),
-      alert_reason: `Single charge of $${t.amount} exceeds standard discretionary baseline by >2.5σ standard deviations.`
-    }));
+  // 3. Identify High-Variance Spending Anomalies (outflows over $300)
+  const spendingAnomalies = outflows
+    .filter((t) => Math.abs(parseFloat(t.amount)) >= 300.0)
+    .map((t) => {
+      const spent = Math.abs(parseFloat(t.amount));
+      return {
+        category: t.category || "High Outflow",
+        description: t.description,
+        amount: spent,
+        alert_reason: `Single charge of $${spent.toFixed(2)} exceeds standard discretionary baseline by >2.5σ standard deviations.`
+      };
+    });
 
   // 4. Compute composite risk score (1 - 100)
   let rawScore = 35;
@@ -61,6 +76,9 @@ const generateClientSideAudit = (holdings, transactions) => {
   else riskLevel = "Low Risk / Healthy";
 
   const totalLeakAnnual = subscriptionLeaks.reduce((acc, s) => acc + s.annual_cost, 0);
+  const totalOut = outflows.reduce((acc, t) => acc + Math.abs(parseFloat(t.amount)), 0);
+  const totalIn = inflows.reduce((acc, t) => acc + parseFloat(t.amount), 0);
+  const netFlow = totalIn - totalOut;
 
   return {
     overall_risk_score: overallRiskScore,
@@ -74,8 +92,21 @@ const generateClientSideAudit = (holdings, transactions) => {
       `Reallocate unlocked cash reserves into low-volatility short-duration Treasury equivalents.`,
       `Establish algorithmic circuit breakers for discretionary transactions exceeding $300.`
     ],
-    summary: `Nemotron quantitative audit evaluated ${holdings.length} asset positions and ${transactions.length} ledger transactions. Identified ${concentrationRisks.length} overconcentrated asset risk(s) and flagged $${totalLeakAnnual.toFixed(2)} in annualized recurring SaaS/subscription capital leakage.`
+    summary: `Nemotron quantitative audit evaluated ${holdings.length} asset positions and ${transactions.length} ledger transactions ($${totalOut.toFixed(2)} out, $${totalIn.toFixed(2)} in, net ${netFlow < 0 ? '-' : '+'}$${Math.abs(netFlow).toFixed(2)}). Identified ${concentrationRisks.length} overconcentrated asset risk(s) and flagged $${totalLeakAnnual.toFixed(2)} in annualized recurring SaaS/subscription capital leakage.`
   };
+};
+
+// Signed figures render in one place so an outflow never shows as "-$-19.99"
+// and a short position never shows as an asset you own.
+const formatSigned = (value, decimals = 2) => {
+  const n = parseFloat(value) || 0;
+  const body = Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return `${n < 0 ? '-' : '+'}$${body}`;
+};
+
+const formatValue = (value) => {
+  const n = parseFloat(value) || 0;
+  return `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString()}`;
 };
 
 const TabPortfolio = () => {
@@ -116,14 +147,16 @@ const TabPortfolio = () => {
       asset_type: h.asset_type || 'Equity',
       allocation_pct: parseFloat(h.allocation_pct) || 0,
       current_value: parseFloat(h.current_value) || 0
-    })).filter(h => h.current_value > 0);
+    })).filter(h => h.current_value !== 0);
 
     if (validHoldings.length === 0) return;
 
+    // Gross exposure weights the legs; the net is what the account is worth.
+    const grossVal = validHoldings.reduce((acc, h) => acc + Math.abs(h.current_value), 0);
     const totalVal = validHoldings.reduce((acc, h) => acc + h.current_value, 0);
-    if (totalVal > 0) {
+    if (grossVal > 0) {
       validHoldings.forEach(h => {
-        h.allocation_pct = Math.round((h.current_value / totalVal) * 1000) / 10;
+        h.allocation_pct = Math.round((h.current_value / grossVal) * 1000) / 10;
       });
     }
 
@@ -146,7 +179,8 @@ const TabPortfolio = () => {
       holdings: validHoldings.length,
       holdingsValue: totalVal,
       transactions: 0,
-      transactionsValue: 0,
+      transactionsOut: 0,
+      transactionsIn: 0,
       skipped: 0,
     });
   };
@@ -154,6 +188,7 @@ const TabPortfolio = () => {
   // Quick transaction add state
   const [newDesc, setNewDesc] = useState('');
   const [newAmount, setNewAmount] = useState('');
+  const [newDirection, setNewDirection] = useState('out');
   const [newCategory, setNewCategory] = useState('Subscription');
 
   const totalPortfolioValue = holdings.reduce((acc, h) => acc + h.current_value, 0);
@@ -161,13 +196,16 @@ const TabPortfolio = () => {
   const handleAddTransaction = (e) => {
     e.preventDefault();
     const amt = parseFloat(newAmount);
-    if (!newDesc.trim() || isNaN(amt) || amt <= 0) return;
+    if (!newDesc.trim() || isNaN(amt) || amt === 0) return;
+    // The picker decides the direction, so typing "50" cannot silently land on
+    // the wrong side of the ledger; a typed minus is respected either way.
+    const signed = newDirection === 'in' ? Math.abs(amt) : -Math.abs(amt);
     const newTx = {
       id: `tx-${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
       description: newDesc.trim(),
-      amount: amt,
-      category: newCategory
+      amount: signed,
+      category: newDirection === 'in' ? 'Income' : newCategory
     };
     setTransactions([newTx, ...transactions]);
     setNewDesc('');
@@ -283,6 +321,16 @@ SPY,SPDR S&P 500 ETF Trust,30,$558.20,$16746.00
 QQQ,Invesco QQQ Trust,25,$482.10,$12052.50
 SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
     },
+    activity: {
+      name: "Brokerage Activity (Buys, Sells & Dividends)",
+      csv: `Run Date,Action,Symbol,Description,Quantity,Price,Amount
+2026-08-04,BUY,NVDA,NVIDIA CORPORATION,50,$118.50,$5925.00
+2026-08-07,SELL,AAPL,APPLE INC,40,$224.20,$8968.00
+2026-08-11,DIVIDEND RECEIVED,MSFT,MICROSOFT CORPORATION,,,$92.40
+2026-08-15,BUY,VOO,VANGUARD S&P 500 ETF,10,$510.40,$5104.00
+2026-08-19,SELL,TSLA,TESLA INC,25,$241.00,$6025.00
+2026-08-19,FEE,,TRADE COMMISSION,,,$4.95`
+    },
     bank: {
       name: "Bank Expenses & Subscriptions",
       csv: `Date,Description,Amount,Category
@@ -313,13 +361,15 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
       holdings: 0,
       holdingsValue: 0,
       transactions: 0,
-      transactionsValue: 0,
+      transactionsOut: 0,
+      transactionsIn: 0,
       skipped: meta.skipped || 0,
     };
 
     // 1. Stock holdings. A row without a symbol is dropped rather than
     //    crashing on toUpperCase(), which is how a partial API response used
-    //    to take the whole import down.
+    //    to take the whole import down. A negative value is kept: that is a
+    //    short or a margin debit, and dropping it overstates the book.
     if (Array.isArray(data.holdings) && data.holdings.length > 0) {
       const validHoldings = data.holdings
         .filter((h) => h && h.symbol)
@@ -330,24 +380,28 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
           allocation_pct: parseFloat(h.allocation_pct) || 0,
           current_value: parseFloat(h.current_value) || 0,
         }))
-        .filter((h) => h.current_value > 0);
+        .filter((h) => h.current_value !== 0);
 
       if (validHoldings.length > 0) {
-        const totalVal = validHoldings.reduce((acc, h) => acc + h.current_value, 0);
-        if (totalVal > 0) {
+        // Weights run off gross exposure, not the net book. With a short in the
+        // account the net is smaller than the sum of the legs, which would push
+        // every long above 100% and light up the concentration warnings.
+        const grossVal = validHoldings.reduce((acc, h) => acc + Math.abs(h.current_value), 0);
+        if (grossVal > 0) {
           validHoldings.forEach((h) => {
-            h.allocation_pct = Math.round((h.current_value / totalVal) * 1000) / 10;
+            h.allocation_pct = Math.round((h.current_value / grossVal) * 1000) / 10;
           });
         }
         nextHoldings = validHoldings;
         setHoldings(validHoldings);
         setHoldingsSource('imported');
         summary.holdings = validHoldings.length;
-        summary.holdingsValue = totalVal;
+        summary.holdingsValue = validHoldings.reduce((acc, h) => acc + h.current_value, 0);
       }
     }
 
-    // 2. Cash ledger transactions
+    // 2. Cash ledger transactions. Amounts stay signed — negative is money out,
+    //    positive is money in — so income is no longer counted as spending.
     if (Array.isArray(data.transactions) && data.transactions.length > 0) {
       const validTxs = data.transactions
         .filter((t) => t)
@@ -358,14 +412,15 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
           amount: parseFloat(t.amount) || 0,
           category: t.category || 'Other',
         }))
-        .filter((t) => t.amount > 0);
+        .filter((t) => t.amount !== 0);
 
       if (validTxs.length > 0) {
         nextTxs = validTxs;
         setTransactions(validTxs);
         setLedgerSource('imported');
         summary.transactions = validTxs.length;
-        summary.transactionsValue = validTxs.reduce((acc, t) => acc + t.amount, 0);
+        summary.transactionsOut = validTxs.reduce((acc, t) => acc + (t.amount < 0 ? -t.amount : 0), 0);
+        summary.transactionsIn = validTxs.reduce((acc, t) => acc + (t.amount > 0 ? t.amount : 0), 0);
       }
     }
 
@@ -637,18 +692,23 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
                   <div className="px-3 py-2.5">
                     <div className="text-lg font-bold text-white tabular-nums">{importSummary.holdings}</div>
                     <div className="text-[10px] uppercase tracking-wider text-emerald-300/80 font-semibold">Holdings</div>
-                    {importSummary.holdingsValue > 0 && (
-                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                        ${importSummary.holdingsValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    {importSummary.holdings > 0 && (
+                      <div className={`text-[11px] font-mono mt-0.5 ${importSummary.holdingsValue < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {formatValue(Math.round(importSummary.holdingsValue))}
                       </div>
                     )}
                   </div>
                   <div className="px-3 py-2.5">
                     <div className="text-lg font-bold text-white tabular-nums">{importSummary.transactions}</div>
                     <div className="text-[10px] uppercase tracking-wider text-emerald-300/80 font-semibold">Transactions</div>
-                    {importSummary.transactionsValue > 0 && (
-                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                        ${importSummary.transactionsValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    {/* Out and in are shown apart: a net of zero can hide a very
+                        busy month, and lumping them was the original bug. */}
+                    {importSummary.transactions > 0 && (
+                      <div className="text-[11px] font-mono mt-0.5 space-x-1.5">
+                        <span className="text-rose-400">{formatSigned(-importSummary.transactionsOut, 0)}</span>
+                        {importSummary.transactionsIn > 0 && (
+                          <span className="text-emerald-400">{formatSigned(importSummary.transactionsIn, 0)}</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -706,6 +766,7 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
                 { key: 'schwab', label: 'Schwab', Icon: Briefcase },
                 { key: 'robinhood', label: 'Robinhood', Icon: Briefcase },
                 { key: 'fidelity', label: 'Fidelity', Icon: Briefcase },
+                { key: 'activity', label: 'Buys & sells', Icon: RefreshCw },
                 { key: 'bank', label: 'Bank statement', Icon: CreditCard },
               ].map(({ key, label, Icon }) => (
                 <button
@@ -1064,7 +1125,7 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div>
               <h3 className="text-sm font-bold text-white">Investment Holdings</h3>
-              <p className="text-xs text-slate-400">Portfolio Total: ${totalPortfolioValue.toLocaleString()}</p>
+              <p className="text-xs text-slate-400">Portfolio Total (net of shorts): {formatValue(totalPortfolioValue)}</p>
             </div>
             <span className="text-xs font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">
               {holdings.length} Positions
@@ -1086,16 +1147,19 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
                   <tr key={idx} className="hover:bg-slate-900/50">
                     <td className="py-2.5 font-medium text-white flex items-center space-x-2">
                       <span className="font-mono text-cyan-400 font-bold">{h.symbol}</span>
+                      {h.current_value < 0 && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-rose-300 bg-rose-950/50 border border-rose-500/40 rounded px-1 py-px">Short</span>
+                      )}
                       <span className="text-slate-400 hidden sm:inline truncate max-w-[120px]">{h.asset_name}</span>
                     </td>
                     <td className="py-2.5 text-slate-400">{h.asset_type}</td>
                     <td className="py-2.5 text-right font-mono font-semibold">
-                      <span className={h.allocation_pct > 25 ? 'text-amber-400' : 'text-slate-200'}>
-                        {h.allocation_pct}%
+                      <span className={Math.abs(h.allocation_pct) > 25 ? 'text-amber-400' : 'text-slate-200'}>
+                        {Math.abs(h.allocation_pct)}%
                       </span>
                     </td>
-                    <td className="py-2.5 text-right font-mono text-slate-300">
-                      ${h.current_value.toLocaleString()}
+                    <td className={`py-2.5 text-right font-mono ${h.current_value < 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+                      {formatValue(h.current_value)}
                     </td>
                   </tr>
                 ))}
@@ -1132,6 +1196,17 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
               onChange={(e) => setNewAmount(e.target.value)}
               className="w-24 px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
             />
+            <select
+              value={newDirection}
+              onChange={(e) => setNewDirection(e.target.value)}
+              title="Which way the cash moves"
+              className={`px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg font-semibold cursor-pointer ${
+                newDirection === 'in' ? 'text-emerald-400' : 'text-rose-400'
+              }`}
+            >
+              <option value="out">Out</option>
+              <option value="in">In</option>
+            </select>
             <button
               type="submit"
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg font-semibold border border-slate-700 cursor-pointer transition-colors"
@@ -1152,8 +1227,8 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
                   <p className="text-[10px] text-slate-500">{t.date} • {t.category}</p>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className="font-mono font-semibold text-rose-400">
-                    -${parseFloat(t.amount).toFixed(2)}
+                  <span className={`font-mono font-semibold ${parseFloat(t.amount) < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {formatSigned(t.amount)}
                   </span>
                   <button
                     type="button"

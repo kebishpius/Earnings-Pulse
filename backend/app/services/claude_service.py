@@ -30,29 +30,33 @@ def build_portfolio_context(portfolio_context: dict) -> str:
 
     holdings = portfolio_context.get("holdings", [])
     if holdings:
-        lines.append("\nINVESTMENT HOLDINGS:")
-        total_val = sum(h.get("current_value", 0) for h in holdings)
+        lines.append("\nINVESTMENT HOLDINGS (a negative value is a short position or margin debit):")
+        total_val = sum(float(h.get("current_value", 0)) for h in holdings)
         for h in holdings:
+            value = float(h.get("current_value", 0))
             lines.append(
                 f"  - {h.get('symbol', 'N/A')} ({h.get('asset_name', 'Unknown')}): "
                 f"{h.get('allocation_pct', 0)}% allocation, "
-                f"${h.get('current_value', 0):,.2f} value, "
+                f"${value:,.2f} value{' [SHORT]' if value < 0 else ''}, "
                 f"type: {h.get('asset_type', 'Equity')}"
             )
-        lines.append(f"  TOTAL PORTFOLIO VALUE: ${total_val:,.2f}")
+        lines.append(f"  TOTAL NET PORTFOLIO VALUE: ${total_val:,.2f}")
 
     transactions = portfolio_context.get("transactions", [])
     if transactions:
-        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records):")
-        total_spend = sum(float(t.get("amount", 0)) for t in transactions)
+        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records, negative = cash out, positive = cash in):")
+        # Netting income against spending and labelling the result "spend" was
+        # wrong in both directions, so the two sides are reported separately.
+        total_out = sum(-float(t.get("amount", 0)) for t in transactions if float(t.get("amount", 0)) < 0)
+        total_in = sum(float(t.get("amount", 0)) for t in transactions if float(t.get("amount", 0)) > 0)
         for t in transactions[:15]:  # cap at 15 to stay within context
             lines.append(
                 f"  - {t.get('date', 'N/A')}: {t.get('description', 'Unknown')} "
-                f"= ${float(t.get('amount', 0)):.2f} [{t.get('category', 'Misc')}]"
+                f"= ${float(t.get('amount', 0)):+,.2f} [{t.get('category', 'Misc')}]"
             )
         if len(transactions) > 15:
             lines.append(f"  ... and {len(transactions) - 15} more transactions")
-        lines.append(f"  TOTAL LOGGED SPEND: ${total_spend:,.2f}")
+        lines.append(f"  TOTAL OUTFLOW: ${total_out:,.2f} | TOTAL INFLOW: ${total_in:,.2f} | NET: ${total_in - total_out:+,.2f}")
 
     audit_result = portfolio_context.get("last_audit")
     if audit_result:

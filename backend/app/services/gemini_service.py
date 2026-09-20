@@ -245,25 +245,30 @@ def _build_portfolio_context_str(portfolio_context: dict) -> str:
     lines = ["=== USER PORTFOLIO DATA ==="]
     holdings = portfolio_context.get("holdings", [])
     if holdings:
-        lines.append("\nINVESTMENT HOLDINGS:")
-        total = sum(h.get("current_value", 0) for h in holdings)
+        lines.append("\nINVESTMENT HOLDINGS (a negative value is a short position or margin debit):")
+        total = sum(float(h.get("current_value", 0)) for h in holdings)
         for h in holdings:
+            value = float(h.get("current_value", 0))
             lines.append(
                 f"  - {h.get('symbol','N/A')} ({h.get('asset_name','Unknown')}): "
-                f"{h.get('allocation_pct',0)}% alloc, ${h.get('current_value',0):,.2f}, "
+                f"{h.get('allocation_pct',0)}% alloc, ${value:,.2f}"
+                f"{' [SHORT]' if value < 0 else ''}, "
                 f"type: {h.get('asset_type','Equity')}"
             )
-        lines.append(f"  TOTAL VALUE: ${total:,.2f}")
+        lines.append(f"  TOTAL NET VALUE: ${total:,.2f}")
     transactions = portfolio_context.get("transactions", [])
     if transactions:
-        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records):")
-        total_spend = sum(float(t.get("amount", 0)) for t in transactions)
+        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records, negative = cash out, positive = cash in):")
+        # Netting income against spending and labelling the result "spend" was
+        # wrong in both directions, so the two sides are reported separately.
+        total_out = sum(-float(t.get("amount", 0)) for t in transactions if float(t.get("amount", 0)) < 0)
+        total_in = sum(float(t.get("amount", 0)) for t in transactions if float(t.get("amount", 0)) > 0)
         for t in transactions[:15]:
             lines.append(
                 f"  - {t.get('date','N/A')}: {t.get('description','Unknown')} "
-                f"= ${float(t.get('amount',0)):.2f} [{t.get('category','Misc')}]"
+                f"= ${float(t.get('amount',0)):+,.2f} [{t.get('category','Misc')}]"
             )
-        lines.append(f"  TOTAL LOGGED SPEND: ${total_spend:,.2f}")
+        lines.append(f"  TOTAL OUTFLOW: ${total_out:,.2f} | TOTAL INFLOW: ${total_in:,.2f} | NET: ${total_in - total_out:+,.2f}")
     audit = portfolio_context.get("last_audit")
     if audit:
         lines.append(f"\nLAST AUDIT: Score {audit.get('overall_risk_score','N/A')}/100, Level: {audit.get('risk_level','N/A')}")
@@ -371,14 +376,24 @@ Analyze the data and extract:
    - "symbol": ticker symbol in uppercase (e.g., "NVDA", "AAPL", "MSFT", "VOO", "BTC", "USD")
    - "asset_name": full company or fund name (e.g., "NVIDIA Corp", "Apple Inc.")
    - "asset_type": one of ["Equity", "ETF", "Crypto", "Cash", "Options", "Bond"]
-   - "current_value": dollar market value as a number (e.g., 14220.00)
+   - "current_value": dollar market value as a number (e.g., 14220.00). NEGATIVE for a short
+     position or a margin debit balance — a negative quantity, a "(1,234.00)" value or a
+     Long/Short column marked Short all mean the position is a liability, not an asset.
    - "allocation_pct": allocation percentage (0 to 100) if available, or calculate (value / total * 100) if possible
 
 2. "transactions": If the data contains bank expenses, orders, or cash transactions, extract:
    - "date": date string (YYYY-MM-DD format if possible, otherwise as-is)
    - "description": merchant or trade name (string)
-   - "amount": absolute dollar amount as a positive number
+   - "amount": SIGNED dollar amount. Negative when cash LEAVES the account (purchases, buys,
+     fees, withdrawals, debits, subscriptions), positive when cash ENTERS it (sale proceeds,
+     dividends, interest, refunds, deposits, payroll). Use whatever the file states: a minus
+     sign, "(1,234.00)" parentheses, a Debit vs Credit column, or a BUY/SELL action column.
+     If every row is unsigned and nothing indicates direction, the file is an expense export
+     and every amount is negative. Never return an amount of 0.
    - "category": categorize into one of: ["Subscription", "Food & Dining", "Travel", "Shopping", "Healthcare", "Entertainment", "Utilities", "Income", "Investment", "Cloud & Infra", "AI Tools", "Fitness", "Finance Sub", "Trading Outflow", "Other"]
+
+IMPORTANT: a statement of trade activity (rows with a date and a BUY/SELL action) is
+"transactions", NOT "holdings" — a sale is not something the user still owns.
 
 INPUT DATA:
 ---
@@ -391,7 +406,8 @@ Return ONLY a valid JSON object matching this exact schema, with NO markdown bac
     {{"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Equity", "allocation_pct": 50.0, "current_value": 15000.0}}
   ],
   "transactions": [
-    {{"date": "2026-08-01", "description": "Trading Fee", "amount": 10.0, "category": "Trading Outflow"}}
+    {{"date": "2026-08-01", "description": "Trading Fee", "amount": -10.0, "category": "Trading Outflow"}},
+    {{"date": "2026-08-07", "description": "SELL AAPL", "amount": 8968.0, "category": "Investment"}}
   ]
 }}"""
 

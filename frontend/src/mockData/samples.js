@@ -14,13 +14,17 @@ export const INITIAL_PORTFOLIO = {
     { symbol: "TSLA", asset_name: "Tesla Inc", asset_type: "Equity", allocation_pct: 8.0, current_value: 8000.00 },
     { symbol: "USD", asset_name: "Cash & Treasuries", asset_type: "Cash", allocation_pct: 4.0, current_value: 4000.00 }
   ],
+  // amount is signed: negative is cash out, positive is cash in. The ledger,
+  // the audit and the advisor all read it that way.
   transactions: [
-    { id: "tx-1", date: "2026-08-01", description: "AWS Cloud Dedicated Cluster", amount: 240.00, category: "Infrastructure" },
-    { id: "tx-2", date: "2026-08-03", description: "Midjourney Pro Tier Subscription", amount: 60.00, category: "AI Tools" },
-    { id: "tx-3", date: "2026-08-05", description: "Equinox All-Access Health Club", amount: 330.00, category: "Fitness" },
-    { id: "tx-4", date: "2026-08-08", description: "Spotify Duo Account (Redundant)", amount: 16.99, category: "Entertainment" },
-    { id: "tx-5", date: "2026-08-12", description: "Bloomberg Terminal Specialist Add-on", amount: 450.00, category: "Financial Data" },
-    { id: "tx-6", date: "2026-08-16", description: "Unusual Late Night Luxury Dining Outflow", amount: 620.00, category: "Discretionary" },
-    { id: "tx-7", date: "2026-08-20", description: "ChatGPT Plus Enterprise Seat", amount: 50.00, category: "AI Tools" }
+    { id: "tx-1", date: "2026-08-01", description: "AWS Cloud Dedicated Cluster", amount: -240.00, category: "Infrastructure" },
+    { id: "tx-2", date: "2026-08-02", description: "Payroll Deposit", amount: 6800.00, category: "Income" },
+    { id: "tx-3", date: "2026-08-03", description: "Midjourney Pro Tier Subscription", amount: -60.00, category: "AI Tools" },
+    { id: "tx-4", date: "2026-08-05", description: "Equinox All-Access Health Club", amount: -330.00, category: "Fitness" },
+    { id: "tx-5", date: "2026-08-08", description: "Spotify Duo Account (Redundant)", amount: -16.99, category: "Entertainment" },
+    { id: "tx-6", date: "2026-08-11", description: "AAPL Sale Proceeds", amount: 8968.00, category: "Investment" },
+    { id: "tx-7", date: "2026-08-12", description: "Bloomberg Terminal Specialist Add-on", amount: -450.00, category: "Financial Data" },
+    { id: "tx-8", date: "2026-08-16", description: "Unusual Late Night Luxury Dining Outflow", amount: -620.00, category: "Discretionary" },
+    { id: "tx-9", date: "2026-08-20", description: "ChatGPT Plus Enterprise Seat", amount: -50.00, category: "AI Tools" }
   ]
 };

@@ -604,6 +604,13 @@ You must identify:
 5. Risk level: "Low", "Moderate", "Elevated", or "High".
 6. Actionable recommendations: concrete tactical steps to rebalance and save capital.
 
+Sign convention in the data you are given: a transaction "amount" is negative when cash left
+the account (spending, buys, fees) and positive when cash came in (income, sale proceeds,
+dividends). A holding "current_value" is negative for a short position or a margin debit
+balance. Only outflows are spending — never report income or a sale as a leak or an anomaly —
+and report every cost in your output as a positive number. Treat an oversized short the same
+way you treat an oversized long when scoring concentration risk.
+
 Output valid JSON inside a ```json ``` block matching this schema:
 {
   "overall_risk_score": 72,
@@ -658,12 +665,17 @@ Conduct comprehensive risk & leakage audit and return valid JSON inside ```json 
     except Exception as e:
         logger.error(f"Portfolio audit failed: {e}. Generating structural audit analysis.")
 
-        # Compute dynamic subscription leaks from transactions
+        # Compute dynamic subscription leaks from transactions. Amounts are
+        # signed (negative = cash out), so inflows are skipped outright: a
+        # paycheck or a sale is not a leak and not a spending anomaly.
         total_sub_leaks = []
         spending_anomalies = []
         for tx in transactions:
             desc = str(tx.get("description", "")).lower()
-            amt = float(tx.get("amount", 0.0))
+            raw_amt = float(tx.get("amount", 0.0))
+            if raw_amt >= 0:
+                continue
+            amt = abs(raw_amt)
             if any(s in desc for s in ["netflix", "gym", "spotify", "adobe", "chatgpt", "cloud", "aws", "fitness", "midjourney", "subscription", "terminal", "equinox"]):
                 total_sub_leaks.append({
                     "service": tx.get("description", "Subscription"),
@@ -680,19 +692,25 @@ Conduct comprehensive risk & leakage audit and return valid JSON inside ```json 
                     "alert_reason": "Single outflow exceeds 30-day category median by >200%."
                 })
 
-        # Compute dynamic concentration risks from holdings
+        # Compute dynamic concentration risks from holdings. A weight is
+        # negative for a short leg, so size is judged on its magnitude.
         conc_risks = []
         max_alloc = 0.0
         for h in holdings:
-            alloc = float(h.get("allocation_pct", 0.0))
+            alloc = abs(float(h.get("allocation_pct", 0.0)))
+            is_short = float(h.get("current_value", 0.0)) < 0
             if alloc > max_alloc:
                 max_alloc = alloc
             if alloc > 25.0:
                 conc_risks.append({
-                    "asset_or_sector": f"{h.get('symbol', 'Asset')} ({h.get('asset_name', '')})",
+                    "asset_or_sector": f"{h.get('symbol', 'Asset')} ({h.get('asset_name', '')})" + (" — SHORT" if is_short else ""),
                     "allocation_pct": alloc,
                     "max_recommended_pct": 20.0,
-                    "risk_comment": f"Single asset weight at {alloc}% exceeds institutional prudential threshold."
+                    "risk_comment": (
+                        f"Short exposure at {alloc}% of gross book carries unbounded upside risk."
+                        if is_short else
+                        f"Single asset weight at {alloc}% exceeds institutional prudential threshold."
+                    )
                 })
 
         # Compute realistic risk score
@@ -738,25 +756,30 @@ def _build_nemotron_portfolio_context(portfolio_context: dict) -> str:
     lines = ["=== USER PORTFOLIO DATA ==="]
     holdings = portfolio_context.get("holdings", [])
     if holdings:
-        lines.append("\nINVESTMENT HOLDINGS:")
-        total = sum(h.get("current_value", 0) for h in holdings)
+        lines.append("\nINVESTMENT HOLDINGS (a negative value is a short position or margin debit):")
+        total = sum(float(h.get("current_value", 0)) for h in holdings)
         for h in holdings:
+            value = float(h.get("current_value", 0))
             lines.append(
                 f"  - {h.get('symbol','N/A')} ({h.get('asset_name','Unknown')}): "
-                f"{h.get('allocation_pct',0)}% alloc, ${h.get('current_value',0):,.2f}, "
+                f"{h.get('allocation_pct',0)}% alloc, ${value:,.2f}"
+                f"{' [SHORT]' if value < 0 else ''}, "
                 f"type: {h.get('asset_type','Equity')}"
             )
-        lines.append(f"  TOTAL VALUE: ${total:,.2f}")
+        lines.append(f"  TOTAL NET VALUE: ${total:,.2f}")
     transactions = portfolio_context.get("transactions", [])
     if transactions:
-        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records):")
-        total_spend = sum(float(t.get("amount", 0)) for t in transactions)
+        lines.append(f"\nRECENT TRANSACTIONS ({len(transactions)} records, negative = cash out, positive = cash in):")
+        # Netting outflows against income and calling the result "spend" was
+        # wrong in both directions, so the two sides are reported separately.
+        total_out = sum(-float(t.get("amount", 0)) for t in transactions if float(t.get("amount", 0)) < 0)
+        total_in = sum(float(t.get("amount", 0)) for t in transactions if float(t.get("amount", 0)) > 0)
         for t in transactions[:15]:
             lines.append(
                 f"  - {t.get('date','N/A')}: {t.get('description','Unknown')} "
-                f"= ${float(t.get('amount',0)):.2f} [{t.get('category','Misc')}]"
+                f"= ${float(t.get('amount',0)):+,.2f} [{t.get('category','Misc')}]"
             )
-        lines.append(f"  TOTAL LOGGED SPEND: ${total_spend:,.2f}")
+        lines.append(f"  TOTAL OUTFLOW: ${total_out:,.2f} | TOTAL INFLOW: ${total_in:,.2f} | NET: ${total_in - total_out:+,.2f}")
     audit = portfolio_context.get("last_audit")
     if audit:
         lines.append(

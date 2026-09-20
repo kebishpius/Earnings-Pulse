@@ -106,13 +106,13 @@ def get_presets():
                 {"symbol": "USD", "asset_name": "Cash Equivalents", "asset_type": "Cash", "allocation_pct": 3.0, "current_value": 3000.00}
             ],
             "transactions": [
-                {"date": "2026-08-01", "description": "AWS Cloud Reserved Instance", "amount": 145.00, "category": "Cloud & Infra"},
-                {"date": "2026-08-03", "description": "Midjourney AI Subscription", "amount": 60.00, "category": "AI Tools"},
-                {"date": "2026-08-05", "description": "Equinox Luxury Health Club", "amount": 295.00, "category": "Fitness"},
-                {"date": "2026-08-09", "description": "Duplicate Spotify Premium Plan", "amount": 16.99, "category": "Entertainment"},
-                {"date": "2026-08-14", "description": "Unused Bloomberg Professional Terminal Add-on", "amount": 420.00, "category": "Finance Sub"},
-                {"date": "2026-08-18", "description": "High Frequency Speculative Options Trade Fee", "amount": 650.00, "category": "Trading Outflow"},
-                {"date": "2026-08-22", "description": "ChatGPT Plus Team Account", "amount": 50.00, "category": "AI Tools"}
+                {"date": "2026-08-01", "description": "AWS Cloud Reserved Instance", "amount": -145.00, "category": "Cloud & Infra"},
+                {"date": "2026-08-03", "description": "Midjourney AI Subscription", "amount": -60.00, "category": "AI Tools"},
+                {"date": "2026-08-05", "description": "Equinox Luxury Health Club", "amount": -295.00, "category": "Fitness"},
+                {"date": "2026-08-09", "description": "Duplicate Spotify Premium Plan", "amount": -16.99, "category": "Entertainment"},
+                {"date": "2026-08-14", "description": "Unused Bloomberg Professional Terminal Add-on", "amount": -420.00, "category": "Finance Sub"},
+                {"date": "2026-08-18", "description": "High Frequency Speculative Options Trade Fee", "amount": -650.00, "category": "Trading Outflow"},
+                {"date": "2026-08-22", "description": "ChatGPT Plus Team Account", "amount": -50.00, "category": "AI Tools"}
             ]
         }
     }
