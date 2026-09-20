@@ -1,5 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe, Building2, X, ArrowUpRight, FileText, BookOpen, Headphones, BarChart2, DollarSign, Dices } from 'lucide-react';
+import { Search, Sparkles, AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, Cpu, Globe, Building2, X, ArrowUpRight, FileText, BookOpen, Headphones, BarChart2, DollarSign, Dices, Plus } from 'lucide-react';
+
+import { useAppAuth, MAX_WATCHLIST, normalizeTicker } from '../auth/AuthContext';
 
 import { SAMPLE_QUERIES } from '../mockData/samples';
 import { getCompanySuggestions, POPULAR_COMPANIES } from '../mockData/companies';
@@ -114,6 +116,8 @@ const TabEarnings = ({ analyzeRequest }) => {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [edgarSuggestions, setEdgarSuggestions] = useState([]);
   const [isSearchingEdgar, setIsSearchingEdgar] = useState(false);
+  const [watchNotice, setWatchNotice] = useState(null);
+  const { watchlist, addToWatchlist, removeFromWatchlist, isWatched } = useAppAuth();
   const searchContainerRef = useRef(null);
   const inputRef = useRef(null);
   const lastLuckyTicker = useRef(null);
@@ -307,6 +311,7 @@ const TabEarnings = ({ analyzeRequest }) => {
     setError(null);
     setIsOfflineFallback(false);
     setShowArticles(false);
+    setWatchNotice(null);
     setPipelineStage('Stage 1/3: Pulling the latest SEC earnings filings and recent online articles about the company...');
 
     const stageTimers = [
@@ -371,6 +376,43 @@ const TabEarnings = ({ analyzeRequest }) => {
     setShowSuggestions(false);
     handleSearch(analyzeRequest.query);
   }, [analyzeRequest]);
+
+  // The ticker the current dossier is about, and whether it is already being
+  // tracked. Both are empty until a search returns something.
+  const watchSymbol = normalizeTicker(result?.ticker);
+  const isWatchingResult = Boolean(watchSymbol) && isWatched(watchSymbol);
+  const isWatchlistFull = watchlist.length >= MAX_WATCHLIST;
+
+  // Lets a promising search go straight onto the Radar instead of being
+  // retyped there. Clicking again while watched takes it back off.
+  const handleToggleWatch = () => {
+    if (!watchSymbol) {
+      setWatchNotice({ status: 'invalid', message: 'This dossier has no ticker symbol to watch.' });
+      return;
+    }
+
+    if (isWatchingResult) {
+      removeFromWatchlist(watchSymbol);
+      setWatchNotice({ status: 'removed', message: `${watchSymbol} removed from your watchlist.` });
+      return;
+    }
+
+    const outcome = addToWatchlist(watchSymbol);
+    const messages = {
+      added: `${watchSymbol} added to your watchlist. The Radar tab will track its next report.`,
+      duplicate: `You are already watching ${watchSymbol}.`,
+      full: `Your watchlist holds ${MAX_WATCHLIST} companies. Remove one on the Radar tab to add another.`,
+      invalid: 'This dossier has no ticker symbol to watch.',
+    };
+    setWatchNotice({ status: outcome.status, message: messages[outcome.status] });
+  };
+
+  // Confirmations are transient; the button itself carries the lasting state.
+  useEffect(() => {
+    if (!watchNotice) return;
+    const timer = setTimeout(() => setWatchNotice(null), 3600);
+    return () => clearTimeout(timer);
+  }, [watchNotice]);
 
   const getSentimentBadge = (sentiment = 'Bullish') => {
     const s = (sentiment || '').toLowerCase();
@@ -712,6 +754,37 @@ const TabEarnings = ({ analyzeRequest }) => {
                 <div className="h-10 w-px bg-slate-800 hidden sm:block" />
                 <button
                   type="button"
+                  onClick={handleToggleWatch}
+                  disabled={!watchSymbol || (!isWatchingResult && isWatchlistFull)}
+                  title={
+                    !watchSymbol
+                      ? 'No ticker symbol on this dossier'
+                      : isWatchingResult
+                        ? `Stop watching ${watchSymbol}`
+                        : isWatchlistFull
+                          ? `Watchlist is full (${MAX_WATCHLIST} companies)`
+                          : `Add ${watchSymbol} to your watchlist`
+                  }
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isWatchingResult
+                      ? 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/40'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 border-slate-700 hover:border-cyan-500/40'
+                  }`}
+                >
+                  {isWatchingResult ? (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Watching</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Add to Watchlist</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
                   onClick={() => setResult(null)}
                   title="Clear Analysis & Start New Search"
                   className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold cursor-pointer transition-colors"
@@ -720,6 +793,21 @@ const TabEarnings = ({ analyzeRequest }) => {
                 </button>
               </div>
             </div>
+
+            {/* Transient confirmation for the watchlist button above */}
+            {watchNotice && (
+              <div
+                className={`mt-4 px-3 py-2 rounded-lg border text-xs font-semibold ${
+                  watchNotice.status === 'added'
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+                    : watchNotice.status === 'full' || watchNotice.status === 'invalid'
+                      ? 'bg-amber-500/10 border-amber-500/40 text-amber-300'
+                      : 'bg-slate-900/70 border-slate-700 text-slate-300'
+                }`}
+              >
+                {watchNotice.message}
+              </div>
+            )}
 
             {/* How Nemotron scored the sentiment & confidence */}
             <div className="mt-5 rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">

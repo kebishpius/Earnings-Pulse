@@ -3,6 +3,7 @@ import { ShieldCheck, AlertTriangle, CreditCard, PieChart, RefreshCw, DollarSign
 import { INITIAL_PORTFOLIO } from '../mockData/samples';
 import { useAppAuth } from '../auth/AuthContext';
 import BrokerageConnectModal from './BrokerageConnectModal';
+import { parseFinancialCsv } from '../utils/financialCsv';
 
 
 // Client-side quantitative risk auditor if backend is offline/unreachable
@@ -93,12 +94,18 @@ const TabPortfolio = () => {
   const [showBrokerageModal, setShowBrokerageModal] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState(null);
-  const [importSuccess, setImportSuccess] = useState(null);
+  const [importSummary, setImportSummary] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [loadingPreset, setLoadingPreset] = useState(null);
   const [activePreset, setActivePreset] = useState(null);
   const fileInputRef = useRef(null);
   const [pasteText, setPasteText] = useState('');
+
+  // Which side of the ledger is real and which is still the bundled sample.
+  // Importing positions does not replace the cash ledger, so without this the
+  // audit silently mixes your holdings with sample subscriptions.
+  const [holdingsSource, setHoldingsSource] = useState(hasPersonalData ? 'imported' : 'sample');
+  const [ledgerSource, setLedgerSource] = useState(hasPersonalData ? 'imported' : 'sample');
 
   const handleBrokerSyncSuccess = (syncedData) => {
     if (!syncedData?.holdings || syncedData.holdings.length === 0) return;
@@ -131,7 +138,17 @@ const TabPortfolio = () => {
       last_audit: null
     });
 
-    setImportSuccess(`✓ Successfully linked ${syncedData.institution_name}! ${validHoldings.length} holdings ($${totalVal.toLocaleString()}) synced.`);
+    setHoldingsSource('brokerage');
+    setImportError(null);
+    setImportSummary({
+      source: syncedData.institution_name || 'Linked brokerage',
+      method: 'SnapTrade sync',
+      holdings: validHoldings.length,
+      holdingsValue: totalVal,
+      transactions: 0,
+      transactionsValue: 0,
+      skipped: 0,
+    });
   };
 
   // Quick transaction add state
@@ -172,6 +189,11 @@ const TabPortfolio = () => {
     setError(null);
     setUsingPersonalData(false);
     setUploadedPortfolio(null);
+    setHoldingsSource('sample');
+    setLedgerSource('sample');
+    setImportSummary(null);
+    setImportError(null);
+    setActivePreset(null);
   };
 
   const handleRunAudit = async () => {
@@ -277,53 +299,77 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
   const [activeBrokerGuide, setActiveBrokerGuide] = useState(null);
 
   // ── Import handlers ──────────────────────────────────────────────────────────
-  const applyImportedData = (data) => {
+
+  const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+  const ACCEPTED_EXTENSIONS = ['.csv', '.tsv', '.txt'];
+
+  const applyImportedData = (data, meta = {}) => {
     let nextHoldings = holdings;
     let nextTxs = transactions;
-    let successNotes = [];
 
-    // 1. Process Stock Holdings
-    if (data.holdings && data.holdings.length > 0) {
-      const validHoldings = data.holdings.map((h) => ({
-        symbol: h.symbol.toUpperCase(),
-        asset_name: h.asset_name || h.symbol,
-        asset_type: h.asset_type || 'Equity',
-        allocation_pct: parseFloat(h.allocation_pct) || 0,
-        current_value: parseFloat(h.current_value) || 0
-      })).filter(h => h.current_value > 0);
+    const summary = {
+      source: meta.source || 'Pasted text',
+      method: meta.method || 'Parser',
+      holdings: 0,
+      holdingsValue: 0,
+      transactions: 0,
+      transactionsValue: 0,
+      skipped: meta.skipped || 0,
+    };
+
+    // 1. Stock holdings. A row without a symbol is dropped rather than
+    //    crashing on toUpperCase(), which is how a partial API response used
+    //    to take the whole import down.
+    if (Array.isArray(data.holdings) && data.holdings.length > 0) {
+      const validHoldings = data.holdings
+        .filter((h) => h && h.symbol)
+        .map((h) => ({
+          symbol: String(h.symbol).toUpperCase(),
+          asset_name: h.asset_name || h.symbol,
+          asset_type: h.asset_type || 'Equity',
+          allocation_pct: parseFloat(h.allocation_pct) || 0,
+          current_value: parseFloat(h.current_value) || 0,
+        }))
+        .filter((h) => h.current_value > 0);
 
       if (validHoldings.length > 0) {
-        // Recompute allocation percentages if needed
         const totalVal = validHoldings.reduce((acc, h) => acc + h.current_value, 0);
         if (totalVal > 0) {
-          validHoldings.forEach(h => {
+          validHoldings.forEach((h) => {
             h.allocation_pct = Math.round((h.current_value / totalVal) * 1000) / 10;
           });
         }
         nextHoldings = validHoldings;
         setHoldings(validHoldings);
-        successNotes.push(`${validHoldings.length} stock holdings ($${totalVal.toLocaleString()})`);
+        setHoldingsSource('imported');
+        summary.holdings = validHoldings.length;
+        summary.holdingsValue = totalVal;
       }
     }
 
-    // 2. Process Transactions
-    if (data.transactions && data.transactions.length > 0) {
-      const validTxs = data.transactions.map((t, i) => ({
-        id: `imported-${Date.now()}-${i}`,
-        date: t.date || new Date().toISOString().split('T')[0],
-        description: t.description,
-        amount: parseFloat(t.amount) || 0,
-        category: t.category || 'Other'
-      })).filter(t => t.amount > 0);
+    // 2. Cash ledger transactions
+    if (Array.isArray(data.transactions) && data.transactions.length > 0) {
+      const validTxs = data.transactions
+        .filter((t) => t)
+        .map((t, i) => ({
+          id: `imported-${Date.now()}-${i}`,
+          date: t.date || new Date().toISOString().split('T')[0],
+          description: t.description || `Transaction ${i + 1}`,
+          amount: parseFloat(t.amount) || 0,
+          category: t.category || 'Other',
+        }))
+        .filter((t) => t.amount > 0);
 
       if (validTxs.length > 0) {
         nextTxs = validTxs;
         setTransactions(validTxs);
-        successNotes.push(`${validTxs.length} ledger transactions`);
+        setLedgerSource('imported');
+        summary.transactions = validTxs.length;
+        summary.transactionsValue = validTxs.reduce((acc, t) => acc + t.amount, 0);
       }
     }
 
-    if (successNotes.length === 0) {
+    if (summary.holdings === 0 && summary.transactions === 0) {
       throw new Error('No valid holdings or transactions could be extracted from this file.');
     }
 
@@ -335,85 +381,110 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
     setUploadedPortfolio({
       holdings: nextHoldings,
       transactions: nextTxs,
-      last_audit: null
+      last_audit: null,
     });
 
-    setImportSuccess(`✓ Successfully imported ${successNotes.join(' and ')}! Run the Nemotron Quantitative Audit to analyze your real portfolio risk.`);
+    setImportSummary(summary);
     setPasteText('');
   };
 
-  const handleImportText = async (text) => {
-    if (!text.trim()) return;
+  // Tries the Gemini-backed endpoint first and falls back to the local parser.
+  // The fallback owns its own error messages, so a malformed file reports what
+  // is actually wrong with it instead of a generic "import failed".
+  const handleImportText = async (text, meta = {}) => {
+    const raw = (text || '').trim();
+    if (!raw) return;
+
     setImportLoading(true);
     setImportError(null);
-    setImportSuccess(null);
-    try {
-      const res = await fetch('/api/upload-data/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw_text: text, format: 'csv' })
-      });
-      if (!res.ok) throw new Error(`Parse API error ${res.status}`);
-      const data = await res.json();
-      applyImportedData(data);
-    } catch (err) {
-      console.warn('API parse failed, using client fallback:', err);
-      try {
-        // Deterministic client fallback: check if header has stock symbols or transactions
-        const lines = text.trim().split('\n').filter(l => l.trim());
-        if (lines.length < 2) throw new Error('File has insufficient lines to parse.');
-        const header = lines[0].toLowerCase();
-        const isStockCSV = header.includes('symbol') || header.includes('ticker') || header.includes('shares') || header.includes('quantity') || header.includes('holding');
+    setImportSummary(null);
 
-        if (isStockCSV) {
-          const parsedHoldings = [];
-          for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
-            const sym = cols[0]?.toUpperCase().replace(/[^A-Z]/g, '');
-            if (!sym || sym === 'TOTAL') continue;
-            const desc = cols[1] || sym;
-            const valStr = cols[4] || cols[3] || cols[2] || '0';
-            const val = Math.abs(parseFloat(valStr.replace(/[^\d.-]/g, '') || '0'));
-            if (val > 0) {
-              parsedHoldings.push({
-                symbol: sym,
-                asset_name: desc,
-                asset_type: ['BTC', 'ETH'].includes(sym) ? 'Crypto' : (['USD', 'CASH', 'SWVXX', 'SPAXX'].includes(sym) ? 'Cash' : 'Equity'),
-                current_value: val,
-                allocation_pct: 0
-              });
-            }
+    try {
+      let parsed = null;
+      let method = 'Gemini AI parser';
+
+      try {
+        const res = await fetch('/api/upload-data/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw_text: raw, format: 'csv' }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const rows = (data?.holdings?.length || 0) + (data?.transactions?.length || 0);
+          if (rows > 0) {
+            parsed = data;
+            // The server says which parser actually ran; claiming "Gemini" when
+            // its deterministic fallback did the work would be wrong.
+            if (data.parse_method) method = data.parse_method;
           }
-          applyImportedData({ holdings: parsedHoldings, transactions: [] });
-        } else {
-          const parsed = lines.slice(1).map((line, i) => {
-            const cols = line.split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
-            return {
-              date: cols[0] || '',
-              description: cols[1] || `Transaction ${i + 1}`,
-              amount: Math.abs(parseFloat(cols[2]?.replace(/[^\d.-]/g, '') || '0')),
-              category: cols[3] || 'Other'
-            };
-          }).filter(t => t.amount > 0);
-          applyImportedData({ holdings: [], transactions: parsed });
         }
-      } catch (fallbackErr) {
-        setImportError(fallbackErr.message || 'Import failed. Please verify your CSV format.');
+      } catch (apiErr) {
+        console.warn('Parse API unreachable, using local CSV parser:', apiErr);
       }
+
+      if (!parsed) {
+        parsed = parseFinancialCsv(raw);
+        method = 'Local CSV parser';
+      }
+
+      applyImportedData(parsed, { ...meta, method, skipped: parsed.skipped });
+    } catch (err) {
+      setImportError(err.message || 'Import failed. Please verify your CSV format.');
     } finally {
       setImportLoading(false);
     }
   };
 
-  const handleFileUpload = (file) => {
+  const handleFileUpload = (file, inputEl) => {
+    // Clearing the input up front is what lets the same file be re-selected;
+    // without it a second pick fires no change event at all.
+    if (inputEl) inputEl.value = '';
     if (!file) return;
+
+    setImportError(null);
+    setImportSummary(null);
+
+    const name = file.name || 'upload';
+    const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+    if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+      setImportError(`${name} is not a supported file. Export your positions as CSV (.csv, .tsv or .txt) — spreadsheets and PDFs cannot be read directly.`);
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setImportError(`${name} is ${(file.size / 1024 / 1024).toFixed(1)} MB, above the 5 MB limit.`);
+      return;
+    }
+    if (file.size === 0) {
+      setImportError(`${name} is empty.`);
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = (e) => handleImportText(e.target.result);
+    reader.onerror = () => setImportError(`Could not read ${name}. The file may be locked by another program.`);
+    reader.onload = (e) => handleImportText(e.target.result, { source: name });
     reader.readAsText(file);
+  };
+
+  // dragOver is refcounted because dragleave also fires when the pointer
+  // crosses a child element, which made the highlight flicker.
+  const dragDepth = useRef(0);
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
+    dragDepth.current = 0;
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
     if (file) handleFileUpload(file);
@@ -427,7 +498,7 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
     setActivePreset(key);
     setLoadingPreset(key);
     try {
-      await handleImportText(preset.csv);
+      await handleImportText(preset.csv, { source: preset.name });
     } finally {
       setLoadingPreset(null);
     }
@@ -477,23 +548,23 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
       <div className={`glass-panel rounded-2xl border transition-all ${showImportPanel ? 'border-cyan-500/40' : 'border-slate-800'}`}>
         <button
           type="button"
-          onClick={() => { setShowImportPanel(v => !v); setImportError(null); setImportSuccess(null); }}
+          onClick={() => { setShowImportPanel(v => !v); setImportError(null); }}
           className="w-full flex items-center justify-between p-5 text-left cursor-pointer group"
         >
           <div className="flex items-center space-x-3">
-            <div className={`h-9 w-9 rounded-xl flex items-center justify-center ${showImportPanel ? 'bg-cyan-500/20 border-cyan-500/40 border' : 'bg-slate-800 border-slate-700 border'}`}>
+            <div className={`h-9 w-9 rounded-xl flex items-center justify-center border ${showImportPanel ? 'bg-cyan-500/20 border-cyan-500/40' : 'bg-slate-800 border-slate-700'}`}>
               <Upload className={`h-4 w-4 ${showImportPanel ? 'text-cyan-400' : 'text-slate-400 group-hover:text-cyan-400'} transition-colors`} />
             </div>
             <div>
-              <p className="text-sm font-bold text-white">Import Your Stock Portfolio or Financial Data</p>
-              <p className="text-xs text-slate-400">Upload CSV positions from Charles Schwab, Fidelity, Robinhood, Vanguard, or bank statements</p>
+              <p className="text-sm font-bold text-white">Import your portfolio or bank statement</p>
+              <p className="text-xs text-slate-400">CSV exports from Schwab, Fidelity, Robinhood, Vanguard, Webull or any bank</p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
             {usingPersonalData && (
               <span className="flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 <Database className="h-2.5 w-2.5" />
-                <span>Your Data 🔒</span>
+                <span>Your data</span>
               </span>
             )}
             {showImportPanel ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
@@ -501,38 +572,159 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
         </button>
 
         {showImportPanel && (
-          <div className="px-5 pb-5 space-y-4 border-t border-slate-800 pt-4 animate-fadeIn">
-            {/* Quick 1-Click Test Presets */}
-            <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-                  <span>Test Real Broker Formats (1-Click Instant Preview):</span>
-                  {loadingPreset && <RefreshCw className="h-3.5 w-3.5 text-cyan-400 animate-spin shrink-0" />}
+          <div className="px-5 pb-5 space-y-3 border-t border-slate-800 pt-4 animate-fadeIn">
+
+            {/* Step 1 — the file itself. Primary action, so it comes first. */}
+            <div
+              onDragEnter={handleDragEnter}
+              onDragOver={(e) => e.preventDefault()}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`relative border border-dashed rounded-xl px-5 py-8 text-center transition-colors ${
+                importLoading
+                  ? 'border-cyan-500/40 bg-slate-900/60 cursor-wait'
+                  : dragOver
+                    ? 'border-cyan-400 bg-cyan-500/10 cursor-copy'
+                    : 'border-slate-700 hover:border-cyan-500/50 hover:bg-slate-900/40 cursor-pointer'
+              }`}
+            >
+              {importLoading ? (
+                <RefreshCw className="h-7 w-7 mx-auto mb-2.5 text-cyan-400 animate-spin" />
+              ) : (
+                <Upload className={`h-7 w-7 mx-auto mb-2.5 transition-colors ${dragOver ? 'text-cyan-400' : 'text-slate-500'}`} />
+              )}
+
+              <p className="text-sm font-semibold text-white">
+                {importLoading ? 'Parsing your file…' : dragOver ? 'Drop to import' : 'Drop a CSV here, or click to browse'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Positions files and bank statements are both detected automatically
+              </p>
+              <p className="text-[10px] text-slate-600 mt-2 font-mono">.csv · .tsv · .txt · up to 5 MB · parsed in your browser</p>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.tsv,.txt,text/csv,text/plain"
+                className="hidden"
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => handleFileUpload(e.target.files?.[0], e.target)}
+              />
+            </div>
+
+            {/* Import outcome */}
+            {importError && (
+              <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs flex items-start space-x-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-rose-400" />
+                <div>
+                  <p className="font-semibold text-rose-200">Could not import that file</p>
+                  <p className="mt-0.5 text-rose-300/90">{importError}</p>
+                </div>
+              </div>
+            )}
+
+            {importSummary && (
+              <div className="rounded-xl bg-emerald-950/25 border border-emerald-500/40 overflow-hidden">
+                <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-emerald-500/20">
+                  <span className="flex items-center space-x-2 text-xs font-bold text-emerald-300 min-w-0">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    <span className="truncate">Imported {importSummary.source}</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-emerald-400/70 shrink-0 ml-2">{importSummary.method}</span>
+                </div>
+                <div className="grid grid-cols-2 divide-x divide-emerald-500/15 text-center">
+                  <div className="px-3 py-2.5">
+                    <div className="text-lg font-bold text-white tabular-nums">{importSummary.holdings}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-emerald-300/80 font-semibold">Holdings</div>
+                    {importSummary.holdingsValue > 0 && (
+                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                        ${importSummary.holdingsValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <div className="text-lg font-bold text-white tabular-nums">{importSummary.transactions}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-emerald-300/80 font-semibold">Transactions</div>
+                    {importSummary.transactionsValue > 0 && (
+                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                        ${importSummary.transactionsValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <p className="px-3.5 py-2 border-t border-emerald-500/20 text-[11px] text-slate-300">
+                  {importSummary.skipped > 0 && (
+                    <span className="text-amber-300">{importSummary.skipped} unreadable row{importSummary.skipped === 1 ? '' : 's'} skipped. </span>
+                  )}
+                  {importSummary.holdings > 0 && ledgerSource === 'sample' && (
+                    <span className="text-amber-300">Your cash ledger is still sample data — import a bank statement to replace it. </span>
+                  )}
+                  {importSummary.transactions > 0 && holdingsSource === 'sample' && (
+                    <span className="text-amber-300">Your holdings are still sample data — import a positions file to replace them. </span>
+                  )}
+                  Run the Nemotron audit below to analyze it.
+                </p>
+              </div>
+            )}
+
+            {/* Step 2 — paste, for anyone who cannot download a file */}
+            <details className="group rounded-xl border border-slate-800 bg-slate-950/40 overflow-hidden">
+              <summary className="px-4 py-2.5 flex items-center justify-between text-xs text-slate-300 hover:text-white cursor-pointer list-none">
+                <span className="flex items-center space-x-2 font-semibold">
+                  <FileText className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Paste CSV text instead</span>
                 </span>
-                <span className="text-[10px] text-slate-500 font-mono">No login required to test</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {[
-                  { key: 'schwab', label: 'Schwab Positions', Icon: Briefcase, idle: 'bg-blue-950/40 hover:bg-blue-900/50 border-blue-500/30 text-blue-300', active: 'bg-blue-900/60 border-blue-400 text-blue-100 ring-2 ring-blue-400/50' },
-                  { key: 'robinhood', label: 'Robinhood CSV', Icon: Briefcase, idle: 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-500/30 text-emerald-300', active: 'bg-emerald-900/60 border-emerald-400 text-emerald-100 ring-2 ring-emerald-400/50' },
-                  { key: 'fidelity', label: 'Fidelity Portfolio', Icon: Briefcase, idle: 'bg-green-950/40 hover:bg-green-900/50 border-green-500/30 text-green-300', active: 'bg-green-900/60 border-green-400 text-green-100 ring-2 ring-green-400/50' },
-                  { key: 'bank', label: 'Bank Statement', Icon: CreditCard, idle: 'bg-purple-950/40 hover:bg-purple-900/50 border-purple-500/30 text-purple-300', active: 'bg-purple-900/60 border-purple-400 text-purple-100 ring-2 ring-purple-400/50' }
-                ].map(({ key, label, Icon, idle, active }) => (
+                <ChevronDown className="h-3.5 w-3.5 text-slate-500 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="px-4 pb-3.5 pt-1 space-y-2 border-t border-slate-800/80">
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  placeholder={"Symbol,Description,Quantity,Price,Current Value\nNVDA,NVIDIA Corporation,120,$118.50,$14220.00"}
+                  rows={4}
+                  className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs font-mono placeholder-slate-600 focus:outline-none focus:border-cyan-500 resize-y"
+                />
+                <div className="flex items-center justify-end">
                   <button
-                    key={key}
                     type="button"
-                    disabled={importLoading}
-                    onClick={() => handlePresetImport(key)}
-                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all cursor-pointer disabled:cursor-not-allowed ${activePreset === key ? active : idle}`}
+                    disabled={!pasteText.trim() || importLoading}
+                    onClick={() => handleImportText(pasteText, { source: 'pasted text' })}
+                    className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center space-x-1.5"
                   >
-                    {loadingPreset === key
-                      ? <RefreshCw className="h-3 w-3 shrink-0 animate-spin" />
-                      : <Icon className="h-3 w-3 shrink-0" />}
-                    <span>{label}</span>
+                    {importLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    <span>{importLoading ? 'Parsing…' : 'Parse & import'}</span>
                   </button>
-                ))}
+                </div>
               </div>
+            </details>
+
+            {/* Step 3 — sample files, one neutral row instead of four clashing ones */}
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <span className="text-[11px] text-slate-500 font-semibold shrink-0">No file handy? Try a sample:</span>
+              {[
+                { key: 'schwab', label: 'Schwab', Icon: Briefcase },
+                { key: 'robinhood', label: 'Robinhood', Icon: Briefcase },
+                { key: 'fidelity', label: 'Fidelity', Icon: Briefcase },
+                { key: 'bank', label: 'Bank statement', Icon: CreditCard },
+              ].map(({ key, label, Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={importLoading}
+                  onClick={() => handlePresetImport(key)}
+                  className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                    activePreset === key
+                      ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  {loadingPreset === key
+                    ? <RefreshCw className="h-3 w-3 shrink-0 animate-spin" />
+                    : <Icon className="h-3 w-3 shrink-0" />}
+                  <span>{label}</span>
+                </button>
+              ))}
             </div>
 
             {/* How to Grab Your Portfolio Guide Accordion */}
@@ -615,64 +807,6 @@ SPAXX,Fidelity Government Money Market,4200,$1.00,$4200.00`
               )}
             </div>
 
-            {/* Drag-and-drop zone */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-7 text-center cursor-pointer transition-all ${
-                dragOver ? 'border-cyan-500 bg-cyan-500/10' : 'border-slate-700 hover:border-cyan-500/50 hover:bg-slate-900/50'
-              }`}
-            >
-              <FileText className={`h-8 w-8 mx-auto mb-3 ${dragOver ? 'text-cyan-400' : 'text-slate-500'}`} />
-              <p className="text-sm font-semibold text-white">Drop your Broker CSV or Bank Statement here</p>
-              <p className="text-xs text-slate-400 mt-1">Supports Schwab, Fidelity, Robinhood, Vanguard, Webull, and standard bank exports</p>
-              <p className="text-[10px] text-slate-500 mt-2">Auto-detects Stock Holdings (Symbol, Quantity, Value) and Cash Flow (Date, Description, Amount)</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.tsv,.txt"
-                className="hidden"
-                onChange={(e) => handleFileUpload(e.target.files?.[0])}
-              />
-            </div>
-
-            {/* Paste area */}
-            <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-2">Or paste CSV raw text directly:</label>
-              <textarea
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-                placeholder={"Symbol,Description,Quantity,Price,Current Value\nNVDA,NVIDIA Corporation,120,$118.50,$14220.00\nAAPL,Apple Inc.,60,$224.20,$13452.00\nMSFT,Microsoft Corporation,35,$430.10,$15053.50"}
-                rows={5}
-                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono placeholder-slate-600 focus:outline-none focus:border-cyan-500 resize-none"
-              />
-              <div className="flex items-center justify-between mt-2">
-                <p className="text-[10px] text-slate-500">Gemini AI will intelligently normalize tickers, asset types & allocations</p>
-                <button
-                  type="button"
-                  disabled={!pasteText.trim() || importLoading}
-                  onClick={() => handleImportText(pasteText)}
-                  className="px-4 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold rounded-lg disabled:opacity-40 cursor-pointer transition-all flex items-center space-x-1.5"
-                >
-                  {importLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  <span>{importLoading ? 'Parsing with Gemini...' : 'Parse & Import Portfolio'}</span>
-                </button>
-              </div>
-            </div>
-
-            {importError && (
-              <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs flex items-start space-x-2">
-                <X className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>{importError}</span>
-              </div>
-            )}
-            {importSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-300 text-xs">
-                {importSuccess}
-              </div>
-            )}
           </div>
 
         )}

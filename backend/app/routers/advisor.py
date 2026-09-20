@@ -214,6 +214,27 @@ async def parse_uploaded_data(request: ParseDataRequest):
     try:
         import csv, io, re
 
+        def clean_money(raw):
+            """Parse "$14,220.00", "(1,234.56)" and "--" the way brokers write them."""
+            s = str(raw or "").strip()
+            if not s or s in {"--", "-"} or s.lower() == "n/a":
+                return None
+            negative = s.startswith("(") and s.endswith(")")
+            s = re.sub(r"[^\d.,-]", "", s.strip("()"))
+            if not s:
+                return None
+            # "1.234,56" (EU) vs "1,234.56" (US): the later separator is the decimal point.
+            last_comma, last_dot = s.rfind(","), s.rfind(".")
+            if last_comma > -1 and last_dot > -1:
+                s = s.replace(".", "").replace(",", ".") if last_comma > last_dot else s.replace(",", "")
+            elif last_comma > -1:
+                s = s.replace(",", ".") if re.search(r",\d{2}$", s) else s.replace(",", "")
+            try:
+                val = float(s)
+            except (ValueError, TypeError):
+                return None
+            return -abs(val) if negative else val
+
         lines = [line for line in request.raw_text.strip().splitlines() if line.strip()]
         # Skip potential broker metadata headers until table header row
         header_idx = 0
@@ -225,10 +246,24 @@ async def parse_uploaded_data(request: ParseDataRequest):
 
         csv_content = "\n".join(lines[header_idx:])
         reader = csv.DictReader(io.StringIO(csv_content))
-        
+
         # Check fieldnames to determine if this is a Stock Holdings CSV or a Bank Ledger CSV
         fieldnames = [f.strip() for f in (reader.fieldnames or [])]
         fieldnames_lower = [f.lower() for f in fieldnames]
+
+        # Brokers disagree on capitalisation ("Current Value" vs "current value"),
+        # so every column lookup goes through a case-insensitive map rather than
+        # an exact row.get(), which silently returned None for half of them.
+        header_map = {f.lower(): f for f in fieldnames}
+
+        def pick(row, *names):
+            for name in names:
+                key = header_map.get(name.lower())
+                if key is not None:
+                    value = row.get(key)
+                    if value not in (None, ""):
+                        return value
+            return None
 
         is_stock_holdings = any(k in fieldnames_lower for k in ["symbol", "ticker", "holding", "position", "shares", "quantity", "market value", "current value"])
 
@@ -238,46 +273,45 @@ async def parse_uploaded_data(request: ParseDataRequest):
         if is_stock_holdings:
             # Parse as stock positions (Schwab, Fidelity, Robinhood, Vanguard)
             for i, row in enumerate(reader):
-                # Symbol lookup
-                sym = None
-                for col in ["Symbol", "Ticker", "Stock", "Asset", "symbol", "ticker"]:
-                    if col in row and row[col]:
-                        sym = str(row[col]).strip().upper()
-                        break
-                if not sym or sym.lower() in ["total", "account total", "cash", "--", ""]:
-                    # Check for cash balance line
-                    if sym and "cash" in sym.lower():
-                        sym = "USD"
-                    else:
-                        continue
+                raw_sym = pick(row, "Symbol", "Ticker", "Ticker Symbol", "Stock", "Asset")
+                sym = str(raw_sym or "").strip().upper()
+
+                # Summary rows are not positions and would double the total.
+                if re.fullmatch(r"(ACCOUNT\s+)?(GRAND\s+)?TOTALS?|SUBTOTAL|SUM", sym or ""):
+                    continue
+                if not sym or sym in {"--", ""}:
+                    continue
+                # Schwab writes its sweep balance as "Cash & Cash Investments" in
+                # the symbol column, which is a real position but not a ticker.
+                if "CASH" in sym and not re.fullmatch(r"[A-Z0-9.\-]{1,6}", sym):
+                    sym = "USD"
+                else:
+                    sym = re.sub(r"[^A-Z0-9.\-]", "", sym)[:12]
+                if not sym:
+                    continue
 
                 # Asset Name / Description
-                desc = row.get("Description") or row.get("Name") or row.get("Security Description") or sym
+                desc = pick(row, "Description", "Name", "Security Description", "Security Name", "Investment Name")
+                if not desc or str(desc).strip() == "--":
+                    desc = sym
 
-                # Market Value or compute from Quantity * Price
-                val_str = row.get("Current Value") or row.get("Market Value") or row.get("Value") or row.get("Total") or "0"
-                val_str = re.sub(r'[^\d\.-]', '', str(val_str))
-                try:
-                    val = abs(float(val_str))
-                except (ValueError, TypeError):
-                    val = 0.0
-
+                # Market Value, or compute it from Quantity x Price
+                val = clean_money(pick(row, "Current Value", "Market Value", "Value", "Total Value", "Total"))
+                if not val:
+                    qty = clean_money(pick(row, "Quantity", "Shares", "Qty", "Units"))
+                    prc = clean_money(pick(row, "Last Price", "Price", "Current Price", "Market Price"))
+                    val = qty * prc if qty is not None and prc is not None else None
+                val = abs(val) if val else 0.0
                 if val == 0.0:
-                    # Try quantity * price
-                    qty_str = re.sub(r'[^\d\.-]', '', str(row.get("Quantity") or row.get("Shares") or "0"))
-                    prc_str = re.sub(r'[^\d\.-]', '', str(row.get("Price") or row.get("Last Price") or row.get("Cost Per Share") or "0"))
-                    try:
-                        val = abs(float(qty_str) * float(prc_str))
-                    except (ValueError, TypeError):
-                        val = 0.0
+                    continue
 
                 # Determine asset type
-                sym_upper = sym.upper()
-                if sym_upper in ["USD", "CASH", "SPAXX", "FDRXX", "SWVXX"]:
+                name_lower = str(desc).lower()
+                if sym in ["USD", "CASH", "SPAXX", "FDRXX", "SWVXX", "VMFXX", "FZFXX"] or "money market" in name_lower or "cash" in name_lower:
                     atype = "Cash"
-                elif sym_upper in ["BTC", "ETH", "SOL", "DOGE"]:
+                elif sym in ["BTC", "ETH", "SOL", "DOGE", "ADA", "XRP"]:
                     atype = "Crypto"
-                elif any(sym_upper.endswith(sfx) for sfx in ["XX", "ETF"]) or sym_upper in ["SPY", "QQQ", "VOO", "VTI", "IWM"]:
+                elif any(sym.endswith(sfx) for sfx in ["XX", "ETF"]) or sym in ["SPY", "QQQ", "VOO", "VTI", "IWM"] or " etf" in name_lower:
                     atype = "ETF"
                 else:
                     atype = "Equity"
@@ -306,20 +340,31 @@ async def parse_uploaded_data(request: ParseDataRequest):
 
         else:
             # Parse as bank / transaction ledger
-            for i, row in enumerate(reader):
-                desc = row.get("Description") or row.get("Merchant") or row.get("Name") or row.get("Payee") or f"Transaction {i+1}"
-                amount_str = row.get("Amount") or row.get("Debit") or row.get("Withdrawal") or "0"
-                amount_str = re.sub(r'[^\d\.-]', '', str(amount_str))
-                try:
-                    amount = abs(float(amount_str))
-                except (ValueError, TypeError):
-                    amount = 0.0
-                date = row.get("Date") or row.get("Transaction Date") or row.get("Posted Date") or ""
+            rows = list(reader)
+
+            # Statements sign outflows negative and income positive. When both
+            # appear only the outflows are spending; taking abs() of everything
+            # turned a paycheck into a flagged anomaly.
+            raw_amounts = [clean_money(pick(r, "Amount", "Transaction Amount", "Debit", "Withdrawal", "Credit", "Deposit")) for r in rows]
+            has_negatives = any(a is not None and a < 0 for a in raw_amounts)
+
+            for i, (row, amount) in enumerate(zip(rows, raw_amounts)):
+                if amount is None or amount == 0:
+                    continue
+                if has_negatives and amount > 0:
+                    continue  # a credit, not spending
+
+                desc = pick(row, "Description", "Merchant", "Name", "Payee", "Memo", "Details") or f"Transaction {i+1}"
+                date = pick(row, "Date", "Transaction Date", "Posted Date", "Post Date", "Posting Date") or ""
+                # The CSV's own category drives subscription-leak detection
+                # downstream, so it has to survive the round trip.
+                category = pick(row, "Category", "Classification", "Type", "Transaction Type") or "Other"
+
                 transactions.append(ParsedTransaction(
-                    date=date,
+                    date=str(date),
                     description=str(desc),
-                    amount=amount,
-                    category="Other"
+                    amount=abs(amount),
+                    category=str(category)
                 ))
 
             return ParseDataResponse(
